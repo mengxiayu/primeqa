@@ -14,7 +14,6 @@ def postprocess_eli5_function(
     # Build a map example to its corresponding features.
     example_id_to_index = {k: i for i, k in enumerate(examples["id"])} 
 
-    # exampleid2featureid: raw dataset id -> example index ->
     feature_per_example = {example_id_to_index[feature["example_id"]]: i for i, feature in enumerate(features)}
     predictions = {}
 

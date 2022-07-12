@@ -216,6 +216,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
             labels = None
         return (loss, generated_tokens, labels)
 
+    # _remove_unused_columns 
+    # https://github.com/huggingface/transformers/blob/198c335d219a5eb4d3f124fdd1ce1a9cd9f78a9b/src/transformers/trainer.py#L557
 
 # Modified from DataCollatorForSeq2Seq
 # convert feature list to tensor
@@ -236,8 +238,6 @@ class FidDataCollator:
         if return_tensors is None:
             return_tensors = self.return_tensors
         labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
-        # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
-        # same length to return tensors.
         if labels is not None:
             max_label_length = max(len(l) for l in labels)
             if self.pad_to_multiple_of is not None:
@@ -258,14 +258,7 @@ class FidDataCollator:
                     feature["labels"] = np.concatenate([feature["labels"], remainder]).astype(np.int64)
                 else:
                     feature["labels"] = np.concatenate([remainder, feature["labels"]]).astype(np.int64)
- 
-        # features = self.tokenizer.pad(
-        #     features,
-        #     padding=self.padding,
-        #     max_length=self.max_length,
-        #     pad_to_multiple_of=self.pad_to_multiple_of,
-        #     return_tensors=return_tensors,
-        # )
+
 
         batch_features = {}
         for feature in features:
@@ -274,7 +267,10 @@ class FidDataCollator:
                     batch_features[k] = []
                 batch_features[k].append(v)
         for k,v in batch_features.items():
-            batch_features[k] = torch.tensor(v) # convert to tensor
+            try: # not converting string features such as "query and "example_id" FIXME test this
+                batch_features[k] = torch.tensor(v) # convert to tensor
+            except:
+                continue
 
         # prepare decoder_input_ids
         if (
@@ -285,6 +281,6 @@ class FidDataCollator:
             decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=batch_features["labels"])
             # features["decoder_input_ids"] = decoder_input_ids
             batch_features["decoder_input_ids"] = decoder_input_ids
-
+        print("data collator",batch_features.keys())
         return batch_features
 
