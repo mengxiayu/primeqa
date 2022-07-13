@@ -161,7 +161,6 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
             return super().prediction_step(
                 model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
             )
-
         has_labels = "labels" in inputs
         inputs = self._prepare_inputs(inputs)
 
@@ -177,7 +176,10 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
 
         if "attention_mask" in inputs:
             gen_kwargs["attention_mask"] = inputs.get("attention_mask", None)
-
+        if "query" in inputs:
+            gen_kwargs["query"] = inputs.get("query", None)
+        if "example_id" in inputs:
+            gen_kwargs["example_id"] = inputs.get("example_id", None)
         # prepare generation inputs
         # some encoder-decoder models can have varying encder's and thus
         # varying model input names
@@ -281,6 +283,5 @@ class FidDataCollator:
             decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=batch_features["labels"])
             # features["decoder_input_ids"] = decoder_input_ids
             batch_features["decoder_input_ids"] = decoder_input_ids
-        print("data collator",batch_features.keys())
         return batch_features
 

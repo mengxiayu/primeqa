@@ -3,20 +3,22 @@
 import tokenizers
 import torch
 import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss
 from torch import nn
 import random
 import json
 import numpy as np
 import transformers
-from transformers.modeling_outputs import BaseModelOutput
+from transformers.modeling_outputs import BaseModelOutput, ModelOutput, Seq2SeqLMOutput
 import marisa_trie
+from typing import Optional, Dict, Any
 
 from transformers import BartTokenizer
 tokenizer = BartTokenizer.from_pretrained("facebook/bart-base")
 
 class FiDBART(transformers.BartForConditionalGeneration):
 
-    def __init__(self, config, kg_file=None):
+    def __init__(self, config, kg_file=None): # TODO pass tokenizer
         super().__init__(config)
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
@@ -51,28 +53,49 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs
         ) # tuple: (loss, lm_logits,) + BartModel outputs (all models return loss in the first element)
         # output[1] shape: (bsz, l, vocab_size)
-        
-        kg_outputs = self.calculate_knowledge_dist(
-            lm_logits=outputs[1],
+        if return_dict:
+            lm_logits = outputs.logits
+        else:
+            lm_logits = outputs[1] # FIXME error when generate(). should look into beam
+        kg_logits = self.calculate_knowledge_dist(
+            lm_logits=lm_logits,
             max_hops=2,
             example_ids=example_id,
             query=query,
             )
 
+    
+        final_logits = lm_logits + kg_logits # FIXME add copy machanism
         '''
         TODO modify here. recalculate the lm_logits and the loss.
         '''
-        return outputs
-
+        masked_lm_loss = None
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+            masked_lm_loss = loss_fct(final_logits.view(-1, self.config.vocab_size), labels.view(-1))
+        if not return_dict:
+            output = (final_logits,) + outputs[2:] # ignore the original loss and lm_logits
+            return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+        return Seq2SeqLMOutput(
+            loss=masked_lm_loss,
+            logits=final_logits,
+            past_key_values=outputs.past_key_values,
+            decoder_hidden_states=outputs.decoder_hidden_states,
+            decoder_attentions=outputs.decoder_attentions,
+            cross_attentions=outputs.cross_attentions,
+            encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+            encoder_hidden_states=outputs.encoder_hidden_states,
+            encoder_attentions=outputs.encoder_attentions,
+        )
     def calculate_knowledge_dist(self, example_ids=None, lm_logits=None, query=None, max_hops=None):
         '''
         query from the knowledge trie (two hops)
         locate the tokens to vodabulary
         modify the lm_logits 
         '''
-        batch_relatd_kgs = []
+        indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
-            str_list = self.knowledge_trie[exp_id]
+            str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
             ext_trie = marisa_trie.Trie(str_list)
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
@@ -83,20 +106,69 @@ class FiDBART(transformers.BartForConditionalGeneration):
                     for span in ext_trie.keys(ent):
                         new_knowledge.extend(span.split(' '))
                 new_knowledge = set(new_knowledge)
-            tmp_kg = list(new_knowledge)
-            related_kgs |= new_knowledge # this is the kg vocab
-            batch_relatd_kgs.append(' '.join(list(related_kgs)))
-        
-        token_ids = tokenizer(batch_relatd_kgs)["input_ids"]
-        print(token_ids.shape)
-        indicator = torch.zeros(lm_logits.shape)
-        indicator[token_ids[0],:, token_ids[1]] = 1
+                tmp_kg = list(new_knowledge)
+                related_kgs |= new_knowledge # this is the kg vocab
+            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
+            indicator[idx, :, token_ids] = 1
         indicator = indicator.to(lm_logits.device)
         kg_logits = lm_logits * indicator
             
         return kg_logits
 
-    
+    # customize this function to allow "query" and "example_id"
+    def prepare_inputs_for_generation(
+        self,
+        decoder_input_ids,
+        past=None,
+        attention_mask=None,
+        head_mask=None,
+        decoder_head_mask=None,
+        cross_attn_head_mask=None,
+        use_cache=None,
+        encoder_outputs=None,
+        query=None,
+        example_id=None,
+        **kwargs
+    ):
+        # cut decoder_input_ids if past is used
+        if past is not None:
+            decoder_input_ids = decoder_input_ids[:, -1:]
+        return {
+            "input_ids": None,  # encoder_outputs is defined. input_ids not needed
+            "encoder_outputs": encoder_outputs,
+            "past_key_values": past,
+            "decoder_input_ids": decoder_input_ids,
+            "attention_mask": attention_mask,
+            "head_mask": head_mask,
+            "decoder_head_mask": decoder_head_mask,
+            "cross_attn_head_mask": cross_attn_head_mask,
+            "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
+            "query": query,
+            "example_id": example_id
+        }
+
+    def _prepare_encoder_decoder_kwargs_for_generation(
+        self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        # 1. get encoder
+        encoder = self.get_encoder()
+
+        # 2. prepare encoder args and encoder kwargs from model kwargs
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "query", "example_id"]
+        # TODO test "query" and "example_id"
+        encoder_kwargs = {
+            argument: value
+            for argument, value in model_kwargs.items()
+            if not any(argument.startswith(p) for p in irrelevant_prefix)
+        }
+
+        # 3. make sure that encoder returns `ModelOutput`
+        model_input_name = model_input_name if model_input_name is not None else self.main_input_name
+        encoder_kwargs["return_dict"] = True
+        encoder_kwargs[model_input_name] = inputs_tensor
+        model_kwargs["encoder_outputs"]: ModelOutput = encoder(**encoder_kwargs)
+
+        return model_kwargs
     
     def generate(self, input_ids, **gen_kwargs):
         self.model.encoder.n_passages = input_ids.size(1)
@@ -167,8 +239,3 @@ class EncoderWrapper(torch.nn.Module):
         return BaseModelOutput( # TODO pass hidden_states and attentions
             last_hidden_state=outputs[0].view(bsz, self.n_passages*passage_length, -1),
         )
-
-
-
-        
-    

@@ -9,13 +9,11 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
-import numpy as np
 
 import datasets
-from datasets import DatasetDict, load_dataset
+from datasets import load_dataset
 
 import transformers
-from typer import Option
 from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTrainer, FidDataCollator
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
 from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks, preprocess_eli5_validation_function_cmsks
@@ -23,9 +21,7 @@ from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_func
 from primeqa.lfqa_kb.models.cmsks import FiDBART
 from transformers import (
     AutoConfig,
-    AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    DataCollatorForSeq2Seq,
     HfArgumentParser,
     Seq2SeqTrainingArguments,
     set_seed,
