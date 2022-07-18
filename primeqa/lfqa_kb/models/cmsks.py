@@ -12,6 +12,7 @@ import transformers
 from transformers.modeling_outputs import BaseModelOutput, ModelOutput, Seq2SeqLMOutput
 import marisa_trie
 from typing import Optional, Dict, Any
+import pickle
 
 from transformers import BartTokenizer
 tokenizer = BartTokenizer.from_pretrained("facebook/bart-base")
@@ -23,8 +24,9 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
     def load_external_kg(self, kg_file):
-        with open(kg_file, 'r') as f:
-            return json.loads(f.read())
+        # with open(kg_file, 'r') as f:
+        #     return json.loads(f.read())
+        return pickle.load(open(kg_file, "rb"))
     def forward_(self, **kwargs):
         if "input_ids" in kwargs:
             kwargs["input_ids"] = kwargs["input_ids"].view(kwargs["input_ids"].size(0), -1)
@@ -56,7 +58,8 @@ class FiDBART(transformers.BartForConditionalGeneration):
         if return_dict:
             lm_logits = outputs.logits
         else:
-            lm_logits = outputs[1] # FIXME error when generate(). should look into beam
+            lm_logits = outputs[1]
+            
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
             max_hops=2,
@@ -65,10 +68,9 @@ class FiDBART(transformers.BartForConditionalGeneration):
             )
 
     
-        final_logits = lm_logits + kg_logits # FIXME add copy machanism
-        '''
-        TODO modify here. recalculate the lm_logits and the loss.
-        '''
+        final_logits = lm_logits + kg_logits # TODO add learned copy machanism
+
+        # output
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
@@ -87,6 +89,17 @@ class FiDBART(transformers.BartForConditionalGeneration):
             encoder_hidden_states=outputs.encoder_hidden_states,
             encoder_attentions=outputs.encoder_attentions,
         )
+    
+    def knowledge_selection(self, lm_logits, kg_logits):
+        '''
+        TODO
+        A = softmax(hdec hTenc ) (9) 
+        hc = Ahenc (10) 
+        pgen = sigmod(Wc hc + Wg hdec )
+        '''
+        
+        
+    
     def calculate_knowledge_dist(self, example_ids=None, lm_logits=None, query=None, max_hops=None):
         '''
         query from the knowledge trie (two hops)
@@ -95,8 +108,9 @@ class FiDBART(transformers.BartForConditionalGeneration):
         '''
         indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
-            str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
-            ext_trie = marisa_trie.Trie(str_list)
+            # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
+            # ext_trie = marisa_trie.Trie(str_list)
+            ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
             related_kgs = set()
