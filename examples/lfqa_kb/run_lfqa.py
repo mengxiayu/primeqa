@@ -212,15 +212,15 @@ class DataTrainingArguments:
         default=20,
         metadata={"help": "The total number of n-best predictions to generate when looking for an answer."},
     )
-    num_beams: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "Number of beams to use for evaluation. This argument will be passed to ``model.generate``, "
-                "which is used during ``evaluate`` and ``predict``."
-            )
-        },
-    )
+    # num_beams: Optional[int] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": (
+    #             "Number of beams to use for evaluation. This argument will be passed to ``model.generate``, "
+    #             "which is used during ``evaluate`` and ``predict``."
+    #         )
+    #     },
+    # )
 
     ignore_pad_token_for_loss: bool = field(
         default=True,
@@ -606,7 +606,7 @@ def main():
         if training_args.generation_max_length is not None
         else data_args.val_max_answer_length
     )
-    num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
+    num_beams = training_args.generation_num_beams
     
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
