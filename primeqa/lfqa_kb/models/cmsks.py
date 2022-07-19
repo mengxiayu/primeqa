@@ -4,7 +4,7 @@ import tokenizers
 import torch
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
-from torch import nn
+from torch import nn, softmax
 import random
 import json
 import numpy as np
@@ -16,13 +16,20 @@ import pickle
 
 from transformers import BartTokenizer
 tokenizer = BartTokenizer.from_pretrained("facebook/bart-base")
+from transformers.models.bart.modeling_bart import logger, shift_tokens_right
 
 class FiDBART(transformers.BartForConditionalGeneration):
 
     def __init__(self, config, kg_file=None): # TODO pass tokenizer
         super().__init__(config)
+        self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
+        self.knowledge_selection = KnowledgeSelection(self.embed_dim)
+        # TODO debug this
+
+
+
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
         #     return json.loads(f.read())
@@ -40,26 +47,44 @@ class FiDBART(transformers.BartForConditionalGeneration):
     # because the T5 forward method uses the input tensors to infer
     # dimensions used in the decoder.
     # EncoderWrapper resizes the inputs as (B * N) x L.
-    def forward(self, input_ids=None, attention_mask=None, labels=None, return_dict=False, example_id=None, query=None, **kwargs):
+
+    def forward(self, input_ids=None, attention_mask=None, labels=None, return_dict=False, example_id=None, query=None, decoder_inputs_embeds=None, use_cache=None, decoder_input_ids=None, **kwargs):
         if input_ids != None:
             if input_ids.dim() == 3:
                 self.model.encoder.n_passages = input_ids.size(1)
-            input_ids = input_ids.view(input_ids.size(0), -1)
+            input_ids = input_ids.view(input_ids.size(0), -1) # reshape input_ids from 3 dim to 2 dim
         if attention_mask != None:
             attention_mask = attention_mask.view(attention_mask.size(0), -1)
-        outputs = super().forward(
-            input_ids=input_ids,
+
+
+        r"""
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the masked language modeling loss. Indices should either be in `[0, ...,
+            config.vocab_size]` or -100 (see `input_ids` docstring). Tokens with indices set to `-100` are ignored
+            (masked), the loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`.
+        Returns:
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        if labels is not None:
+            if use_cache:
+                logger.warning("The `use_cache` argument is changed to `False` since `labels` is provided.")
+            use_cache = False
+            if decoder_input_ids is None and decoder_inputs_embeds is None:
+                decoder_input_ids = shift_tokens_right(
+                    labels, self.config.pad_token_id, self.config.decoder_start_token_id
+                )
+
+        outputs = self.model(
+            input_ids,
             attention_mask=attention_mask,
-            labels=labels,
+            decoder_input_ids=decoder_input_ids,
             return_dict=return_dict,
-            **kwargs
-        ) # tuple: (loss, lm_logits,) + BartModel outputs (all models return loss in the first element)
-        # output[1] shape: (bsz, l, vocab_size)
-        if return_dict:
-            lm_logits = outputs.logits
-        else:
-            lm_logits = outputs[1]
-            
+            use_cache=use_cache,
+            **kwargs,
+        )
+        lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
+
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
             max_hops=2,
@@ -67,17 +92,28 @@ class FiDBART(transformers.BartForConditionalGeneration):
             query=query,
             )
 
-    
-        final_logits = lm_logits + kg_logits # TODO add learned copy machanism
+        # Option 1: equally select
+        # final_logits = lm_logits + kg_logits
 
+        # Option 2: select by learned weight TODO
+        if not return_dict:
+            decoder_hidden, encoder_hidden = outputs
+        else:
+            decoder_hidden = outputs.last_hidden_state
+            encoder_hidden = outputs.encoder_last_hidden_state
+        final_logits = self.knowledge_selection(lm_logits, kg_logits, encoder_hidden, decoder_hidden)
         # output
         masked_lm_loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
             masked_lm_loss = loss_fct(final_logits.view(-1, self.config.vocab_size), labels.view(-1))
+
+
         if not return_dict:
-            output = (final_logits,) + outputs[2:] # ignore the original loss and lm_logits
+            output = (final_logits,) + outputs[1:]
             return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+        #     return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+       
         return Seq2SeqLMOutput(
             loss=masked_lm_loss,
             logits=final_logits,
@@ -88,16 +124,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
             encoder_last_hidden_state=outputs.encoder_last_hidden_state,
             encoder_hidden_states=outputs.encoder_hidden_states,
             encoder_attentions=outputs.encoder_attentions,
-        )
-    
-    def knowledge_selection(self, lm_logits, kg_logits):
-        '''
-        TODO
-        A = softmax(hdec hTenc ) (9) 
-        hc = Ahenc (10) 
-        pgen = sigmod(Wc hc + Wg hdec )
-        '''
-        
+        )        
         
     
     def calculate_knowledge_dist(self, example_ids=None, lm_logits=None, query=None, max_hops=None):
@@ -201,18 +228,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
         """
         Unwrap FiD, useful to load weights
         """
-        self.model.encoder = self.model.encoder.encoder
-        # TODO the original code assign layers, do we need to do this?
-        # layers = []
-        # for mod in self.model.encoder.layers:
-        #     layers.append(mod.modules())
-        # layers = nn.ModuleList(layers)
-        # self.model.encoder.layers = layers
-
-    def load_pretrained(self, state_dict):
-        self.unwrap_encoder()
-        self.load_state_dict(state_dict)
-        self.wrap_encoder()
+        self.model.encoder = self.model.encoder.encoder 
     
     def set_checkpoint(self, use_checkpoint):
         """
@@ -223,13 +239,34 @@ class FiDBART(transformers.BartForConditionalGeneration):
         for mod in self.model.encoder.encoder.layers:
             mod.use_checkpoint = use_checkpoint
     
-    # it was load_t5 in the original repo, we modify it to BART
+    # only used when initialized from pretrained BART. 
+    # BART doesn't contain knowledge_selection module, so we initialize it here.
     def load_pretrained(self, state_dict):
         self.unwrap_encoder()
-        self.load_state_dict(state_dict)
+        self.load_state_dict(state_dict, strict=False) # strict=False to allow partial load.
         self.wrap_encoder()
+        
     
+class KnowledgeSelection(torch.nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.hc_proj = nn.Linear(embed_dim, 1)
+        self.hd_proj = nn.Linear(embed_dim, 1)
+    
+    def forward(self, lm_logits, kg_logits, encoder_hidden, decoder_hidden):
+        '''
+        TODO put it into a nn.module class
+        A = softmax(hdec hTenc ) (9) 
+        hc = Ahenc (10) 
+        pgen = sigmod(Wc hc + Wg hdec )
+        '''
+        A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
+        A = nn.functional.softmax(A, dim=-1)
+        Hc = torch.bmm(A, encoder_hidden) # encoder_hidden = (B, Le, N); Hc = (B, Ld, N)
+        p = torch.sigmoid(self.hc_proj(Hc) + self.hd_proj(decoder_hidden))
 
+        return p * lm_logits + (1-p) * kg_logits
+        
 
 
 class EncoderWrapper(torch.nn.Module):

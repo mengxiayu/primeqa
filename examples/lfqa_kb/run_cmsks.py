@@ -387,15 +387,9 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    # for FiD test code
-    # model = AutoModelForSeq2SeqLM.from_pretrained(
-    #     model_args.model_name_or_path,
-    #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
-    #     config=config,
-    #     cache_dir=model_args.cache_dir,
-    #     revision=model_args.model_revision,
-    #     use_auth_token=True if model_args.use_auth_token else None,
-    # )
+
+
+    # Load pretrained model or checkpoint
     if model_args.model_name_or_path in ["facebook/bart-base", "facebook/bart-large"]:
         bart = BartForConditionalGeneration.from_pretrained(
             model_args.model_name_or_path,
@@ -415,6 +409,7 @@ def main():
             cache_dir=model_args.cache_dir,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
+            kg_file=data_args.kg_file,
         )
     model.resize_token_embeddings(len(tokenizer))
     if model.config.decoder_start_token_id is None:
@@ -610,7 +605,7 @@ def main():
         if training_args.generation_max_length is not None
         else data_args.val_max_answer_length
     )
-    num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
+    num_beams = training_args.generation_num_beams
     
     if training_args.do_eval:
         logger.info("*** Evaluate ***")
