@@ -13,11 +13,20 @@ def merge(passage_file, data_file, output_file):
             fw.write(json.dumps(data)+'\n')
 
 def main():
-    for split in ["train", "dev"]:
-        psg_f = f"/dccstor/myu/retrieval/data/KILT/eli5/predictions/dpr/eli5_re2g_{split}.jsonl"
-        data_f = f"/dccstor/myu/data/kilt_eli5/eli5-{split}-kilt.json"
-        output_f = f"/dccstor/myu/data/kilt_eli5_dpr/eli5-{split}-kilt-dpr.json"
+    # # ELI5
+    # for split in ["train", "dev"]:
+    #     psg_f = f"/dccstor/myu/retrieval/data/KILT/eli5/predictions/dpr/eli5_re2g_{split}.jsonl"
+    #     data_f = f"/dccstor/myu/data/kilt_eli5/eli5-{split}-kilt.json"
+    #     output_f = f"/dccstor/myu/data/kilt_eli5_dpr/eli5-{split}-kilt-dpr.json"
+    #     merge(psg_f, data_f, output_f)
+
+    # ASQA
+    for split in ["train", "dev", "test"]:
+        psg_f = f"/dccstor/myu/retrieval/data/asqa/predictions/dpr/asqa_re2g_{split}.jsonl"
+        data_f = f"/dccstor/myu/data/asqa/asqa_{split}.json"
+        output_f = f"/dccstor/myu/data/asqa_dpr/asqa_{split}_dpr.json"
         merge(psg_f, data_f, output_f)
+    
 
 if __name__ == "__main__":
     main()

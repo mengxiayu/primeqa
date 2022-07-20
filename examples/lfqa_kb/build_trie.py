@@ -92,7 +92,7 @@ def convert2kg(texts: List[str], client: Any):
     # return str_list
 
     str_list = []
-    triple_set = set()
+    # triple_set = set()
     for text in texts:
         resolved_text = nlp(text)._.coref_resolved
         doc = client.annotate(resolved_text)
@@ -106,34 +106,11 @@ def convert2kg(texts: List[str], client: Any):
                 # s = ' '.join(return_entities(s)) # FIXME The original KID code doesn't do preprocessing but the paper mentioned (lower, preprocessing, etc) 
                 if score < 0.8:
                     continue
-                    
-                subj_tokens = [token.text for token in nlp(triple.subject) if not token.is_stop]
-                obj_tokens = [token.text for token in nlp(triple.object) if not token.is_stop]
-                if len(subj_tokens)==0 or len(obj_tokens)==0:
-                    continue
-                # subj + obj
-                new_list = []
-                for tok in subj_tokens + obj_tokens:
-                    if tok not in new_list:
-                        new_list.append(tok)
-                
-                if len(new_list) <= 1:
-                    continue
-                new_str = " ".join(new_list)
-                if new_str not in triple_set:
-                    triple_set.add(new_str)
-                    str_list.append(new_str)
-                # obj + subj
-                new_list = []
-                for tok in obj_tokens + subj_tokens:
-                    if tok not in new_list:
-                        new_list.append(tok)
-                new_str = " ".join(new_list)
-                if new_str not in triple_set:
-                    triple_set.add(new_str)
-                    str_list.append(new_str)
-    # TODO filter str_list
 
+                new_str = f"{triple.subject}\t{triple.object}"
+                str_list.append(new_str)
+
+    str_list = list(set(str_list))
     return str_list
 
 
@@ -159,6 +136,18 @@ def load_eli5_dpr(dataset_fn, n_docs):
             examples.append(ex)
     return examples
 
+def load_asqa_dpr(dataset_fn, n_docs):
+    import json
+    examples = []
+    with open(dataset_fn) as f:
+        for line in f:
+            ex = {}
+            data = json.loads(line.strip())
+            ex["id"] = data["id"]
+            ex["passages"] =  [x["text"] for x in data["passages"]][:n_docs]
+            examples.append(ex)
+    return examples
+
 def load_asqa_content(dataset_fn):
     import json
     examples = []
@@ -180,68 +169,34 @@ import json
 from stanza.server import CoreNLPClient
 os.environ['CORENLP_HOME'] = '/dccstor/myu/.stanfordnlp_resources/stanford-corenlp-4.4.0'
 
-def create_external_graph_eli5(n_docs, task_path, examples, start=None, end=None, port=None):
+def create_external_graph(task_path, examples, start=None, end=None, port=None):
     print("start and end", start, end)
     examples = examples[start:end]
-    # else take all examples
-    # full_str_list = []
-    id2kg = {}
-    cnt = 0
+    fw = open(task_path + f"id2kg_{start}_{end}.json", 'w')
     with CoreNLPClient(annotators=['openie'], 
                    memory='8G', endpoint=port, be_quiet=True, properties=properties) as client:
         for ex in tqdm(examples, total=len(examples)):
             
             kg_docs_text = ex["passages"] # a list of strings
             str_list = convert2kg(kg_docs_text, client)
-            # full_str_list.extend(str_list)
-            cnt += 1
-            id2kg[ex["id"]] = str_list
-            with open(task_path + f"id2kg_{start}_{end}.json", 'w') as fw:
-                fw.write(json.dumps(id2kg))
-            # with open (task_path + f'/full_str_{n_docs}_{cnt}.txt', 'w') as fw:
-            #     for x,y,score in str_list:
-            #         fw.write(f"{x}\t{y}\t{score}\n")
-
-    # trie = marisa_trie.Trie(full_str_list)
-    # with open(task_path + '/trie_' + str(n) + '.pickle', 'wb') as handle:
-    #     pickle.dump(trie, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-def create_external_graph_asqa(n_docs, task_path, examples, start=None, end=None, port=None):
-    print("start and end", start, end)
-    examples = examples[start:end]
-    # else take all examples
-    full_str_list = []
-    with CoreNLPClient(annotators=['openie'], 
-                   memory='8G', endpoint=port, be_quiet=True) as client:
-        for ex in tqdm(examples, total=len(examples)):
-            kg_docs_text = ex["passages"] # a list of strings
+            new_line = {
+                "id": ex["id"],
+                "kg": str_list
+            }
+            fw.write(json.dumps(new_line)+'\n')
             
-            full_str_list.extend(convert2kg(kg_docs_text, client))
-
-    with open (task_path + f'/full_str_{n_docs}_{start}-{end}.txt', 'w') as fw:
-        for subj, obj, score in full_str_list:
-            fw.write(f"{subj}\t{obj}\t{score}\n")
+    fw.close()
 
 
 if __name__ == '__main__':
-
-    n=20
-
-    
     import sys
     args = sys.argv
     assert len(args) == 6
 
-    examples = load_eli5_dpr(
+    examples = load_asqa_dpr(
         args[3],
-        n_docs=n
+        n_docs=20
     )   
     output_path = args[4]
     assert os.path.isdir(output_path)
-    create_external_graph_eli5(n, output_path, examples, int(args[1]), int(args[2]), args[5])
-
-    # examples = load_asqa_content(
-    #     "/dccstor/myu/data/asqa/asqa_dev.json",
-    # )
-    # output_path = "/dccstor/myu/experiments/knowledge_trie/asqa_dev"
-    # create_external_graph_asqa(n, output_path, examples)
+    create_external_graph(output_path, examples, int(args[1]), int(args[2]), args[5])
