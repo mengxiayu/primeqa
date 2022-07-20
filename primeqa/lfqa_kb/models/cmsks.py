@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 import pickle
 
 from transformers import BartTokenizer
-tokenizer = BartTokenizer.from_pretrained("facebook/bart-base")
+tokenizer = BartTokenizer.from_pretrained("facebook/bart-large")
 from transformers.models.bart.modeling_bart import logger, shift_tokens_right
 
 class FiDBART(transformers.BartForConditionalGeneration):
@@ -255,9 +255,8 @@ class KnowledgeSelection(torch.nn.Module):
     
     def forward(self, lm_logits, kg_logits, encoder_hidden, decoder_hidden):
         '''
-        TODO put it into a nn.module class
-        A = softmax(hdec hTenc ) (9) 
-        hc = Ahenc (10) 
+        A = softmax(hdec hTenc)
+        hc = Ahenc
         pgen = sigmod(Wc hc + Wg hdec )
         '''
         A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
