@@ -49,7 +49,7 @@ from spacy.tokens import Token
 stop_words_getter = lambda token: token.is_stop or token.lower_ in STOP_WORDS \
                                                 or token.lemma_ in STOP_WORDS
 Token.set_extension('is_stop', getter=stop_words_getter, force=True)
-nlp = spacy.load("en_core_web_lg")
+nlp = spacy.load("en_core_web_lg", disable=["parser","tok2vec","ner"])
 
 def preprocess_eli5_batch_cmsks(examples, data_args, mode="train") -> Tuple[List[str], List[str]]:
     
