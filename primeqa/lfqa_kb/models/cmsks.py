@@ -26,9 +26,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
         self.knowledge_selection = KnowledgeSelection(self.embed_dim)
-        # TODO debug this
-
-
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -196,7 +193,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
         # 2. prepare encoder args and encoder kwargs from model kwargs
         irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "query", "example_id"]
-        # TODO test "query" and "example_id"
         encoder_kwargs = {
             argument: value
             for argument, value in model_kwargs.items()
@@ -275,7 +271,7 @@ class EncoderWrapper(torch.nn.Module):
     
     def forward(self, input_ids=None, attention_mask=None, return_dict=False, **kwargs):
         # total_length = n_passages * passage_length
-        if input_ids.dim() == 3: # the generate() function directly call the encoder, so we don't have chance to resize before encoder TODO
+        if input_ids.dim() == 3: # the generate() function directly call the encoder, so we don't have chance to resize before encoder
             input_ids = input_ids.view(input_ids.size(0), -1)
         bsz, total_length = input_ids.shape # B * (N * L)
         passage_length = total_length // self.n_passages
@@ -284,7 +280,7 @@ class EncoderWrapper(torch.nn.Module):
         outputs = self.encoder(input_ids, attention_mask, **kwargs)
 
         if not return_dict:
-            return (outputs[0].view(bsz, self.n_passages*passage_length, -1), ) + outputs[1:] # concatenate encoder outputs #TODO support when return_dict=True
+            return (outputs[0].view(bsz, self.n_passages*passage_length, -1), ) + outputs[1:] # concatenate encoder outputs 
 
         return BaseModelOutput( # TODO pass hidden_states and attentions
             last_hidden_state=outputs[0].view(bsz, self.n_passages*passage_length, -1),
