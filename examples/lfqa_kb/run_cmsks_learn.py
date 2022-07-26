@@ -399,7 +399,7 @@ def main():
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
         )
-        model = FiDBART(bart.config, data_args.kg_file)
+        model = FiDBART(bart.config, data_args.kg_file) # TODO implement this argument
         model.load_pretrained(bart.state_dict())
     else:
         model = FiDBART.from_pretrained(

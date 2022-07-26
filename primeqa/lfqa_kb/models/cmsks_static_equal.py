@@ -83,7 +83,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=2,
+            max_hops=3,
             example_ids=example_id,
             query=query,
             )
@@ -129,7 +129,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
             ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
-            related_kgs = set()
+            related_kgs = set(local_kg)
             for i in range(max_hops):
                 new_knowledge = []
                 for ent in tmp_kg:
