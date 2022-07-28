@@ -80,10 +80,12 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
+        lm_logits = torch.sigmoid(lm_logits) # transform the values into 0 to 1
+
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=3,
+            max_hops=2,
             example_ids=example_id,
             query=query,
             )
@@ -124,8 +126,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
         '''
         indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
-            # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
-            # ext_trie = marisa_trie.Trie(str_list)
             ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
@@ -139,7 +139,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
                 tmp_kg = list(new_knowledge)
                 related_kgs |= new_knowledge # this is the kg vocab
             token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
-            indicator[idx, :, token_ids] = 1
+            indicator[idx, :, token_ids[1:-1]] = 1
         indicator = indicator.to(lm_logits.device)
         kg_logits = lm_logits * indicator
             

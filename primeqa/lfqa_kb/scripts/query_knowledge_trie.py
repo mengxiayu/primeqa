@@ -8,7 +8,7 @@ stop_words_getter = lambda token: token.is_stop or token.lower_ in STOP_WORDS \
                                                 or token.lemma_ in STOP_WORDS
 Token.set_extension('is_stop', getter=stop_words_getter, force=True)
 
-nlp = spacy.load("en_core_web_lg", disable=["parser","tok2vec","ner"])
+nlp = spacy.load("en_core_web_lg", disable=["parser","ner"])
 
 def get_knowledge_vocab(ext_trie, local_kg, max_hops):
         # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
@@ -52,6 +52,7 @@ with open(data_file, 'r') as f:
         print(query)
         kg_vocab = get_knowledge_vocab(ext_trie, query, max_hops)
         print(kg_vocab)
+        data["query"] = query
         data["kg_vocab"] = kg_vocab
         data.pop("passages", None)
         data_lines.append(json.dumps(data))

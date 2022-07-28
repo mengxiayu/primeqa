@@ -18,18 +18,20 @@ def _metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     max_idx = np.argmax(scores_for_ground_truths)
     return scores_for_ground_truths[max_idx], ground_truths[max_idx] 
 
-pred_fn = "/dccstor/myu/experiments/eli5_cmsks_ctx_3/checkpoint-16452/output/eval_predictions.json"
+pred_fn = "/dccstor/mabornea2/eli5/code/lfqa-primeqa/experiments/eli5_cmsks_learn_ctx3_hop2_learn_bs1_1e-5_0726/eval_predictions.json"
 data_fn = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json"
-output_fn = "/dccstor/myu/experiments/eli5_cmsks_ctx_3/checkpoint-16452/output/eval_pred_scores.json"
+output_fn = "/dccstor/mabornea2/eli5/code/lfqa-primeqa/experiments/eli5_cmsks_learn_ctx3_hop2_learn_bs1_1e-5_0726/eval_pred_scores.json"
 
-# 3. take the bart generation as prediction
 
 with open(data_fn, 'r', encoding='utf-8') as f:
     references = []
+    questions = []
     for line in f:
         data = json.loads(line.strip())
         _refs = [x["answer"] for x in data["output"] if "answer" in x]
+        _q = data["input"]
         references.append(_refs)
+        questions.append(_q)
 
 with open(pred_fn, 'r') as f:
     predictions = json.loads(f.read())
@@ -53,6 +55,7 @@ with open(output_fn, 'w') as f:
     for idx,line in enumerate(rouge_scores):
         tmp_record = {
             "id" : predictions[idx]['id'],
+            "input": questions[idx],
             "prediction_text" : predictions[idx]['prediction_text'],
             "max_rouge_ref" : max_score_refs[idx],
             "rouge-L": f"{line*100:.2f}",

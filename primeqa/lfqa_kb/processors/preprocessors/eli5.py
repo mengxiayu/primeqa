@@ -164,8 +164,14 @@ def preprocess_eli5_batch_cmsks_oracle(examples, data_args, mode="train") -> Tup
         return [f"question: {question} passage: {t}" for t in passages]
     def get_initial_query(x):
         y = [
-            token.lemma_.lower() for token in nlp(x)
-            if token.pos_ in ['PROPN', 'NOUN'] and not token.is_stop
+            token.lemma_ for token in nlp(x) if
+            not token.is_stop
+            and not token.is_currency
+            and not token.is_digit
+            and not token.is_punct
+            and not token.is_space
+            and not token.like_num
+            and not token.pos_ == "PROPN"
         ]
         return list(set(y))
     # multiple answers for training
