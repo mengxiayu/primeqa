@@ -22,10 +22,10 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
     def __init__(self, config, kg_file=None): # TODO pass tokenizer
         super().__init__(config)
-        self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
-        self.knowledge_selection = KnowledgeSelection(self.embed_dim)
+        self.knowledge_selection = KnowledgeSelection(config.d_model)
+        self.knowledge_projection = KnowledgeProjection(config.d_model, config.vocab_size)
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -81,14 +81,15 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
-        # TODO
-        kg_logits = self.calculate_knowledge_dist(
+
+
+        kg_embeds = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
             max_hops=2,
             example_ids=example_id,
             query=query,
             )
-
+        kg_logits = self.knowledge_projection(kg_embeds)
         if not return_dict:
             decoder_hidden, encoder_hidden = outputs
         else:
@@ -124,9 +125,12 @@ class FiDBART(transformers.BartForConditionalGeneration):
         '''
         query from the knowledge trie (two hops)
         locate the tokens to vodabulary
-        modify the lm_logits 
+        construct kg embeddings        
         '''
-        indicator = torch.zeros(lm_logits.shape)
+
+        seq_len = lm_logits.shape[1]
+        kg_embeds = []
+        # indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
             ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
@@ -140,12 +144,21 @@ class FiDBART(transformers.BartForConditionalGeneration):
                 new_knowledge = set(new_knowledge)
                 tmp_kg = list(new_knowledge)
                 related_kgs |= new_knowledge # this is the kg vocab
-            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
-            indicator[idx, :, token_ids[1:-1]] = 1
-        indicator = indicator.to(lm_logits.device)
-        kg_logits = lm_logits * indicator
+
+            token_ids = tokenizer(' '.join(list(related_kgs)), return_tensors="pt")["input_ids"].to(lm_logits.device) # (B, ?)
+            embed = self.model.shared(token_ids) # 
+            embed = torch.sum(embed, dim=1)
+            kg_embeds.append(embed)
+        kg_embeds = torch.stack(kg_embeds)
+
+        kg_embeds = kg_embeds.expand(kg_embeds.shape[0], seq_len, kg_embeds.shape[-1])
             
-        return kg_logits
+
+        #     indicator[idx, :, token_ids[1:-1]] = 1
+        # indicator = indicator.to(lm_logits.device)
+        # kg_logits = lm_logits * indicator
+            
+        return kg_embeds
 
     # customize this function to allow "query" and "example_id"
     def prepare_inputs_for_generation(
@@ -237,6 +250,20 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.wrap_encoder()
         
     
+class KnowledgeProjection(torch.nn.Module):
+    def __init__(self, embed_dim, vocab_size):
+        super().__init__()
+        self.dropout = nn.Dropout(p=0.5)
+        self.fc1 = nn.Linear(embed_dim, embed_dim)
+        self.fc2 = nn.Linear(embed_dim, vocab_size)
+    def forward(self, x):
+        x = self.dropout(x)
+        x = self.fc1(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+        return x
+
 class KnowledgeSelection(torch.nn.Module):
     def __init__(self, embed_dim):
         super().__init__()
