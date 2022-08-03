@@ -4,7 +4,6 @@ import tokenizers
 import torch
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
-from torch import nn, softmax
 import random
 import json
 import numpy as np
@@ -25,10 +24,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
-        self.fc1 = nn.Linear(self.model.shared.num_embeddings, 128)
-        self.activate_fn = torch.nn.ReLU()
-        self.fc2 = nn.Linear(128, self.model.shared.num_embeddings)
-        self.dropout = 0.5
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -87,17 +82,10 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=3,
+            max_hops=2,
             example_ids=example_id,
             query=query,
             )
-
-        res = kg_logits
-        kg_logits = self.fc1(kg_logits)
-        kg_logits = self.activate_fn(kg_logits)
-        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
-        kg_logits = self.fc2(kg_logits)
-        kg_logits = res + kg_logits
 
         # Option 1: equally select
         final_logits = lm_logits + kg_logits
@@ -133,15 +121,15 @@ class FiDBART(transformers.BartForConditionalGeneration):
         locate the tokens to vodabulary
         modify the lm_logits 
         '''
-        indicator = torch.zeros(lm_logits.shape)
+        kg_logits = torch.min(lm_logits, dim=-1)[0]
+        kg_logits = kg_logits.unsqueeze(-1)
+        kg_logits = kg_logits.expand_as(lm_logits).clone() # initialize it with min values (B, L, V)
         for idx,exp_id in enumerate(example_ids):
-            # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
-            # ext_trie = marisa_trie.Trie(str_list)
             ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
             related_kgs = set(local_kg)
-            for i in range(max_hops):
+            for _ in range(max_hops):
                 new_knowledge = []
                 for ent in tmp_kg:
                     for span in ext_trie.keys(ent):
@@ -149,10 +137,10 @@ class FiDBART(transformers.BartForConditionalGeneration):
                 new_knowledge = set(new_knowledge)
                 tmp_kg = list(new_knowledge)
                 related_kgs |= new_knowledge # this is the kg vocab
-            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
-            indicator[idx, :, token_ids[1:-1]] = 1
-        indicator = indicator.to(lm_logits.device)
-        kg_logits = lm_logits * indicator
+            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"][1:-1]
+            max_logits = torch.max(lm_logits[idx], dim=-1)[0].unsqueeze(-1).expand(lm_logits.shape[1], len(token_ids))
+            kg_logits[idx, :, token_ids] = max_logits
+            kg_logits = kg_logits.to(lm_logits.device)
             
         return kg_logits
 

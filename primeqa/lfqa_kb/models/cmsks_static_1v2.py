@@ -25,10 +25,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
-        self.fc1 = nn.Linear(self.model.shared.num_embeddings, 128)
-        self.activate_fn = torch.nn.ReLU()
-        self.fc2 = nn.Linear(128, self.model.shared.num_embeddings)
-        self.dropout = 0.5
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -87,20 +83,13 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=3,
+            max_hops=2,
             example_ids=example_id,
             query=query,
             )
 
-        res = kg_logits
-        kg_logits = self.fc1(kg_logits)
-        kg_logits = self.activate_fn(kg_logits)
-        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
-        kg_logits = self.fc2(kg_logits)
-        kg_logits = res + kg_logits
-
-        # Option 1: equally select
-        final_logits = lm_logits + kg_logits
+        # weight more for kg_logits
+        final_logits = lm_logits + 2*kg_logits
 
         # output
         masked_lm_loss = None

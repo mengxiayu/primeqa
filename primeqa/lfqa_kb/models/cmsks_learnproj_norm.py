@@ -1,10 +1,9 @@
 # from data collator (index, target_ids, target_mask, passage_ids, passage_masks)
 
-import tokenizers
 import torch
 import torch.nn.functional as F
-from torch.nn import CrossEntropyLoss
-from torch import nn, softmax
+from torch.nn import NLLLoss, CrossEntropyLoss
+from torch import nn
 import random
 import json
 import numpy as np
@@ -25,10 +24,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
-        self.fc1 = nn.Linear(self.model.shared.num_embeddings, 128)
-        self.activate_fn = torch.nn.ReLU()
-        self.fc2 = nn.Linear(128, self.model.shared.num_embeddings)
-        self.dropout = 0.5
+        self.knowledge_selection = KnowledgeSelection(self.embed_dim, self.model.shared.num_embeddings)
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -84,7 +80,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
-
+        lm_logits = nn.functional.softmax(lm_logits, dim=-1)
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
             max_hops=3,
@@ -92,20 +88,24 @@ class FiDBART(transformers.BartForConditionalGeneration):
             query=query,
             )
 
-        res = kg_logits
-        kg_logits = self.fc1(kg_logits)
-        kg_logits = self.activate_fn(kg_logits)
-        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
-        kg_logits = self.fc2(kg_logits)
-        kg_logits = res + kg_logits
-
         # Option 1: equally select
-        final_logits = lm_logits + kg_logits
+        # final_logits = lm_logits + kg_logits
 
+        # Option 2: select by learned weight 
+        if not return_dict:
+            decoder_hidden, encoder_hidden = outputs
+        else:
+            decoder_hidden = outputs.last_hidden_state
+            encoder_hidden = outputs.encoder_last_hidden_state
+        final_logits = self.knowledge_selection(lm_logits, kg_logits, encoder_hidden, decoder_hidden)
+        # renormalize
+        denominator = torch.sum(final_logits, dim=-1).unsqueeze(-1).expand_as(final_logits)
+        final_logits /= denominator
+        final_logits = torch.log(final_logits)
         # output
         masked_lm_loss = None
         if labels is not None:
-            loss_fct = CrossEntropyLoss()
+            loss_fct = NLLLoss()
             masked_lm_loss = loss_fct(final_logits.view(-1, self.config.vocab_size), labels.view(-1))
 
 
@@ -244,6 +244,37 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.unwrap_encoder()
         self.load_state_dict(state_dict, strict=False) # strict=False to allow partial load.
         self.wrap_encoder()
+        
+    
+class KnowledgeSelection(torch.nn.Module):
+    def __init__(self, embed_dim, vocab_size):
+        super().__init__()
+        self.hc_proj = nn.Linear(embed_dim, 1)
+        self.hd_proj = nn.Linear(embed_dim, 1)
+        self.fc1 = nn.Linear(vocab_size, 128)
+        self.activate_fn = torch.nn.ReLU()
+        self.fc2 = nn.Linear(128, vocab_size)
+        self.dropout = 0.5
+    
+    def forward(self, lm_logits, kg_logits, encoder_hidden, decoder_hidden):
+        '''
+        A = softmax(hdec hTenc)
+        hc = Ahenc
+        pgen = sigmod(Wc hc + Wg hdec )
+        '''
+        A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
+        A = nn.functional.softmax(A, dim=-1)
+        Hc = torch.bmm(A, encoder_hidden) # encoder_hidden = (B, Le, N); Hc = (B, Ld, N)
+        p = torch.sigmoid(self.hc_proj(Hc) + self.hd_proj(decoder_hidden)) #
+        # kg_logits = self.fc2(self.fc1(kg_logits)) # (B, Ld, V)  (V)
+        res = kg_logits
+        kg_logits = self.fc1(kg_logits)
+        kg_logits = self.activate_fn(kg_logits)
+        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
+        kg_logits = self.fc2(kg_logits)
+        kg_logits = res + kg_logits
+
+        return p * lm_logits + (1-p) * kg_logits # lm_logits = (B, Ld, N)
         
 
 

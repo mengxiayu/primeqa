@@ -18,9 +18,9 @@ def _metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     max_idx = np.argmax(scores_for_ground_truths)
     return scores_for_ground_truths[max_idx], ground_truths[max_idx] 
 
-pred_fn = "/dccstor/mabornea2/eli5/code/lfqa-primeqa/experiments/eli5_cmsks_learn_ctx3_hop2_learn_bs1_1e-5_0726/eval_predictions.json"
+pred_fn = "/dccstor/myu/experiments/eli5_cmsks_learnscore_hop2_ctx3_greedy_3e-5_0729/eval_predictions.json"
 data_fn = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json"
-output_fn = "/dccstor/mabornea2/eli5/code/lfqa-primeqa/experiments/eli5_cmsks_learn_ctx3_hop2_learn_bs1_1e-5_0726/eval_pred_scores.json"
+output_fn = "/dccstor/myu/experiments/eli5_cmsks_learnscore_hop2_ctx3_greedy_3e-5_0729/eval_pred_scores.json"
 
 
 with open(data_fn, 'r', encoding='utf-8') as f:

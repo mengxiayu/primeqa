@@ -80,7 +80,6 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
-        lm_logits = torch.sigmoid(lm_logits) # transform the values into 0 to 1
 
 
         kg_logits = self.calculate_knowledge_dist(

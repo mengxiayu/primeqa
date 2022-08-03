@@ -4,14 +4,14 @@ import tokenizers
 import torch
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
-from torch import nn, softmax
+from torch import nn
 import random
 import json
 import numpy as np
 import transformers
 from transformers.modeling_outputs import BaseModelOutput, ModelOutput, Seq2SeqLMOutput
 import marisa_trie
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import pickle
 
 from transformers import BartTokenizer
@@ -25,10 +25,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.embed_dim = config.d_model
         self.wrap_encoder()
         self.knowledge_trie = self.load_external_kg(kg_file)
-        self.fc1 = nn.Linear(self.model.shared.num_embeddings, 128)
-        self.activate_fn = torch.nn.ReLU()
-        self.fc2 = nn.Linear(128, self.model.shared.num_embeddings)
-        self.dropout = 0.5
+        self.knowledge_selection = KnowledgeSelection(self.embed_dim)
 
     def load_external_kg(self, kg_file):
         # with open(kg_file, 'r') as f:
@@ -87,21 +84,21 @@ class FiDBART(transformers.BartForConditionalGeneration):
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=3,
+            max_hops=2,
             example_ids=example_id,
             query=query,
             )
 
-        res = kg_logits
-        kg_logits = self.fc1(kg_logits)
-        kg_logits = self.activate_fn(kg_logits)
-        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
-        kg_logits = self.fc2(kg_logits)
-        kg_logits = res + kg_logits
-
         # Option 1: equally select
-        final_logits = lm_logits + kg_logits
+        # final_logits = lm_logits + kg_logits
 
+        # Option 2: select by learned weight TODO
+        if not return_dict:
+            decoder_hidden, encoder_hidden = outputs
+        else:
+            decoder_hidden = outputs.last_hidden_state
+            encoder_hidden = outputs.encoder_last_hidden_state
+        final_logits = self.knowledge_selection(lm_logits, kg_logits, encoder_hidden, decoder_hidden)
         # output
         masked_lm_loss = None
         if labels is not None:
@@ -133,7 +130,12 @@ class FiDBART(transformers.BartForConditionalGeneration):
         locate the tokens to vodabulary
         modify the lm_logits 
         '''
-        indicator = torch.zeros(lm_logits.shape)
+        # kg_logits = torch.zeros(lm_logits.shape)
+        kg_logits = torch.min(lm_logits, dim=-1)[0]
+        kg_logits = kg_logits.unsqueeze(-1)
+        kg_logits = kg_logits.expand_as(lm_logits).clone() # initialize it with min values (B, L, V)
+
+        # indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
             # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
             # ext_trie = marisa_trie.Trie(str_list)
@@ -141,7 +143,7 @@ class FiDBART(transformers.BartForConditionalGeneration):
             local_kg = query[idx] # a list of tokens
             tmp_kg = local_kg
             related_kgs = set(local_kg)
-            for i in range(max_hops):
+            for _ in range(max_hops):
                 new_knowledge = []
                 for ent in tmp_kg:
                     for span in ext_trie.keys(ent):
@@ -149,10 +151,13 @@ class FiDBART(transformers.BartForConditionalGeneration):
                 new_knowledge = set(new_knowledge)
                 tmp_kg = list(new_knowledge)
                 related_kgs |= new_knowledge # this is the kg vocab
-            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
-            indicator[idx, :, token_ids[1:-1]] = 1
-        indicator = indicator.to(lm_logits.device)
-        kg_logits = lm_logits * indicator
+            token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"][1:-1]
+            max_logits = torch.max(lm_logits[idx], dim=-1)[0].unsqueeze(-1).expand(lm_logits.shape[1], len(token_ids))
+            kg_logits[idx, :, token_ids] = max_logits
+            kg_logits = kg_logits.to(lm_logits.device)
+        #     indicator[idx, :, token_ids] = 1
+        # indicator = indicator.to(lm_logits.device)
+
             
         return kg_logits
 
@@ -187,6 +192,39 @@ class FiDBART(transformers.BartForConditionalGeneration):
             "query": query,
             "example_id": example_id
         }
+
+    # # FIXME expand the example_ids and query  
+    # @staticmethod
+    # def _expand_inputs_for_generation(
+    #     input_ids: torch.LongTensor,
+    #     expand_size: int = 1,
+    #     is_encoder_decoder: bool = False,
+    #     attention_mask: Optional[torch.LongTensor] = None,
+    #     encoder_outputs: Optional[ModelOutput] = None,
+    #     **model_kwargs,
+    # ) -> Tuple[torch.LongTensor, Dict[str, Any]]:
+    #     print("tensor expansion")
+    #     expanded_return_idx = (
+    #         torch.arange(input_ids.shape[0]).view(-1, 1).repeat(1, expand_size).view(-1).to(input_ids.device)
+    #     )
+    #     input_ids = input_ids.index_select(0, expanded_return_idx)
+
+    #     if "token_type_ids" in model_kwargs:
+    #         token_type_ids = model_kwargs["token_type_ids"]
+    #         model_kwargs["token_type_ids"] = token_type_ids.index_select(0, expanded_return_idx)
+
+    #     if attention_mask is not None:
+    #         model_kwargs["attention_mask"] = attention_mask.index_select(0, expanded_return_idx)
+
+    #     if is_encoder_decoder:
+    #         if encoder_outputs is None:
+    #             raise ValueError("If `is_encoder_decoder` is True, make sure that `encoder_outputs` is defined.")
+    #         encoder_outputs["last_hidden_state"] = encoder_outputs.last_hidden_state.index_select(
+    #             0, expanded_return_idx.to(encoder_outputs.last_hidden_state.device)
+    #         )
+    #         model_kwargs["encoder_outputs"] = encoder_outputs
+    #     return input_ids, model_kwargs
+
 
     def _prepare_encoder_decoder_kwargs_for_generation(
         self, inputs_tensor: torch.Tensor, model_kwargs, model_input_name: Optional[str] = None
@@ -244,6 +282,26 @@ class FiDBART(transformers.BartForConditionalGeneration):
         self.unwrap_encoder()
         self.load_state_dict(state_dict, strict=False) # strict=False to allow partial load.
         self.wrap_encoder()
+        
+    
+class KnowledgeSelection(torch.nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.hc_proj = nn.Linear(embed_dim, 1)
+        self.hd_proj = nn.Linear(embed_dim, 1)
+    
+    def forward(self, lm_logits, kg_logits, encoder_hidden, decoder_hidden):
+        '''
+        A = softmax(hdec hTenc)
+        hc = Ahenc
+        pgen = sigmod(Wc hc + Wg hdec )
+        '''
+        A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
+        A = nn.functional.softmax(A, dim=-1)
+        Hc = torch.bmm(A, encoder_hidden) # encoder_hidden = (B, Le, N); Hc = (B, Ld, N)
+        p = torch.sigmoid(self.hc_proj(Hc) + self.hd_proj(decoder_hidden))
+
+        return p * lm_logits + (1-p) * kg_logits
         
 
 

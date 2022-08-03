@@ -25,36 +25,41 @@ def get_knowledge_vocab(ext_trie, local_kg, max_hops):
         related_kgs |= new_knowledge # this is the kg vocab
     return list(related_kgs)
 
-def get_initial_query(question):
-    query = [
-        token.lemma_.lower() for token in nlp(question)
-        if token.pos_ in ['PROPN', 'NOUN'] and not token.is_stop
+def get_initial_query(x):
+    y = [
+        token.lemma_ for token in nlp(x) if
+        not token.is_stop
+        and not token.is_currency
+        and not token.is_digit
+        and not token.is_punct
+        and not token.is_space
+        and not token.like_num
+        and not token.pos_ == "PROPN"
     ]
-    return list(set(query))
-
+    return list(set(y))
 
 kg_file = "/dccstor/myu/experiments/knowledge_trie/eli5_openie_merge/id2kg.pickle"
-data_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr.json"
-output_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr-kg-hop2.json"
-max_hops = 2
+data_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-single.json"
+output_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-kg-oracle.json"
+max_hops = 1
 
-knowledge_tries = pickle.load(open(kg_file, 'rb'))
+# knowledge_tries = pickle.load(open(kg_file, 'rb'))
 
 
 with open(data_file, 'r') as f:
     data_lines = []
     for line in f:
         data = json.loads(line.strip())
-        question = data["input"]
-        example_id = data["id"]
-        ext_trie = knowledge_tries[example_id]
-        query = get_initial_query(question)
-        # print(query)
-        kg_vocab = get_knowledge_vocab(ext_trie, query, max_hops)
-        # print(kg_vocab)
-        data["query"] = query
+        answer = data["output"][0]["answer"]
+        # example_id = data["id"]
+        # ext_trie = knowledge_tries[example_id]
+        query = get_initial_query(answer)
+
+        kg_vocab = query
+        print(kg_vocab)
+        # data["query"] = query
         data["kg_vocab"] = kg_vocab
-        # data.pop("passages", None)
+        data.pop("passages", None)
         data_lines.append(json.dumps(data))
 print(len(data_lines))
 with open (output_file, 'w') as f:

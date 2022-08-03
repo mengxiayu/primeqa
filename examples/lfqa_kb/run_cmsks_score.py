@@ -9,32 +9,25 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
-import numpy as np
 
 import datasets
 from datasets import load_dataset
 
 import transformers
-from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTrainer
+from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTrainer, FidDataCollator
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
-from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function, preprocess_eli5_validation_function
-from primeqa.lfqa_kb.processors.preprocessors.asqa import preprocess_asqa_function, preprocess_asqa_validation_function
+from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks, preprocess_eli5_validation_function_cmsks
 from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_function
-from primeqa.lfqa_kb.processors.postprocessors.asqa import postprocess_asqa_function
+from primeqa.lfqa_kb.models.cmsks_score import FiDBART
 from transformers import (
     AutoConfig,
-    AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    DataCollatorForSeq2Seq,
     HfArgumentParser,
     Seq2SeqTrainingArguments,
-    TrainerCallback,
-    EarlyStoppingCallback,
-    TrainerState,
-    TrainerControl,
     set_seed,
+    BartForConditionalGeneration,
 )
-from transformers.trainer_utils import EvalLoopOutput, EvalPrediction, get_last_checkpoint
+from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
@@ -222,13 +215,6 @@ class DataTrainingArguments:
         },
     )
 
-    ignore_pad_token_for_loss: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether to ignore the tokens corresponding to padded labels in the loss computation or not."
-        },
-    )
-
     def __post_init__(self):
         if (
             self.dataset_name is None
@@ -251,8 +237,7 @@ class DataTrainingArguments:
             self.val_max_answer_length = self.max_answer_length
 
 
-
-# customized arguments for LFQA# customized arguments for LFQA
+# customized arguments for LFQA
 @dataclass
 class LFQADataArguments(DataTrainingArguments):
 
@@ -267,6 +252,10 @@ class LFQADataArguments(DataTrainingArguments):
         metadata={
             "help": "Whether to ignore the tokens corresponding to padded labels in the loss computation or not."
         },
+    )
+    kg_file: Optional[str] = field(
+        default=None,
+        metadata={"help": "the path to knowledge trie file."},
     )
 
 @dataclass
@@ -294,9 +283,7 @@ class LFQATrainingArguments(Seq2SeqTrainingArguments):
 
 question_answering_column_name_mapping = {
     "squad_v2": ("question", "context", "answer"),
-    "eli5": ("input", "output"),
-    "asqa": ("ambiguous_question", "annotations")
-
+    "kilt_tasks": ("input", "output")
 }
 
 
@@ -362,17 +349,23 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    raw_datasets = {}
-    if data_args.train_file is not None:
-        extension = data_args.train_file.split(".")[-1]
-        raw_datasets["train"] = load_dataset(extension, data_files={"train": data_args.train_file}, split="train")
-    if data_args.validation_file is not None:
-        extension = data_args.validation_file.split(".")[-1]
-        raw_datasets["validation"] = load_dataset(extension, data_files={"validation": data_args.validation_file}, split="validation")
-    if data_args.test_file is not None:
-        extension = data_args.test_file.split(".")[-1]
-        raw_datasets["test"] = load_dataset(extension, data_files={"test": data_args.test_file}, split="validation")
-
+    if data_args.dataset_name is not None:
+        # Downloading and loading a dataset from the hub.
+        raw_datasets = load_dataset(
+            data_args.dataset_name, data_args.dataset_config_name, cache_dir=model_args.cache_dir
+        )
+    else:
+        raw_datasets = {}
+        if data_args.train_file is not None:
+            extension = data_args.train_file.split(".")[-1]
+            raw_datasets["train"] = load_dataset(extension, data_files={"train": data_args.train_file}, split="train")
+        if data_args.validation_file is not None:
+            extension = data_args.validation_file.split(".")[-1]
+            raw_datasets["validation"] = load_dataset(extension, data_files={"validation": data_args.validation_file}, split="validation")
+        if data_args.test_file is not None:
+            extension = data_args.test_file.split(".")[-1]
+            raw_datasets["test"] = load_dataset(extension, data_files={"test": data_args.test_file}, split="validation")
+        
             # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
@@ -394,28 +387,34 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
-    model = AutoModelForSeq2SeqLM.from_pretrained(
-        model_args.model_name_or_path,
-        from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        config=config,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
 
+
+    # Load pretrained model or checkpoint
+    if model_args.model_name_or_path in ["facebook/bart-base", "facebook/bart-large"]:
+        bart = BartForConditionalGeneration.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+        )
+        model = FiDBART(bart.config, data_args.kg_file) # TODO implement this argument
+        model.load_pretrained(bart.state_dict())
+    else:
+        model = FiDBART.from_pretrained(
+            model_args.model_name_or_path,
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            kg_file=data_args.kg_file,
+        )
     model.resize_token_embeddings(len(tokenizer))
-
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
-    # Specify the dataset process function
-    preprocess_func_dict = {"eli5": preprocess_eli5_function, "asqa": preprocess_asqa_function}
-    preprocess_val_func_dict = {"eli5": preprocess_eli5_validation_function, "asqa": preprocess_asqa_validation_function}
-    postprocess_func_dict = {"eli5": postprocess_eli5_function, "asqa": postprocess_asqa_function}
-
-
-    # Preprocessing the datasets.
-    # We need to generate and tokenize inputs and targets.
     if training_args.do_train:
         column_names = raw_datasets["train"].column_names
     elif training_args.do_eval:
@@ -452,10 +451,7 @@ def main():
             raise ValueError(
                 f"--answer_column' value '{data_args.answer_column}' needs to be one of: {', '.join(column_names)}"
             )
-    if not ((data_args.context_column is not None and data_args.n_context > 0) or (data_args.context_column is None and data_args.n_context == 0)):
-        raise ValueError(
-            f"--context_column and --n_context should both be provided for generation with contexts."
-        )
+
     # Temporarily set max_answer_length for training.
     max_answer_length = data_args.max_answer_length
     padding = "max_length" if data_args.pad_to_max_length else False
@@ -473,7 +469,7 @@ def main():
         )
     max_seq_length = min(data_args.max_seq_length, tokenizer.model_max_length)
 
-    # args for preprocess function
+
     args_for_preprocess = { 
         "tokenizer": tokenizer,
         "max_seq_length": max_seq_length,
@@ -482,7 +478,6 @@ def main():
         "data_args": data_args
 
     }
-
     if training_args.do_train:
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
@@ -492,9 +487,11 @@ def main():
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.select(range(max_train_samples))
 
+        # args for preprocess function
+
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
-                preprocess_func_dict[data_args.dataset_name],
+                preprocess_eli5_function_cmsks,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
@@ -518,7 +515,7 @@ def main():
         # Validation Feature Creation
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_examples.map(
-                preprocess_val_func_dict[data_args.dataset_name],
+                preprocess_eli5_validation_function_cmsks,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
@@ -541,7 +538,7 @@ def main():
         # Predict Feature Creation
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = predict_examples.map(
-                preprocess_val_func_dict[data_args.dataet_name],
+                preprocess_eli5_validation_function_cmsks,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
@@ -556,12 +553,14 @@ def main():
 
     # Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id
-    data_collator = DataCollatorForSeq2Seq(
+    data_collator = FidDataCollator(
         tokenizer,
         model=model,
+        max_length=max_seq_length,
         label_pad_token_id=label_pad_token_id,
         pad_to_multiple_of=8 if training_args.fp16 else None,
     )
+
 
     # Initialize our Trainer
     trainer = QuestionAnsweringSeq2SeqTrainer(
@@ -574,7 +573,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        post_process_function=postprocess_func_dict[data_args.dataset_name],
+        post_process_function=postprocess_eli5_function,
     )
 
     # Training

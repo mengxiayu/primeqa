@@ -81,11 +81,10 @@ class FiDBART(transformers.BartForConditionalGeneration):
             **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
-        lm_logits = torch.sigmoid(lm_logits)
 
         kg_logits = self.calculate_knowledge_dist(
             lm_logits=lm_logits,
-            max_hops=2,
+            max_hops=3,
             example_ids=example_id,
             query=query,
             )
@@ -264,13 +263,12 @@ class KnowledgeSelection(torch.nn.Module):
         A = nn.functional.softmax(A, dim=-1)
         Hc = torch.bmm(A, encoder_hidden) # encoder_hidden = (B, Le, N); Hc = (B, Ld, N)
         p = torch.sigmoid(self.hc_proj(Hc) + self.hd_proj(decoder_hidden)) #
-        # kg_logits = self.fc2(self.fc1(kg_logits)) # (B, Ld, V)  (V)
-        res = kg_logits
+
         kg_logits = self.fc1(kg_logits)
         kg_logits = self.activate_fn(kg_logits)
-        kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
+        # kg_logits = torch.nn.functional.dropout(kg_logits, p=self.dropout, training=self.training)
         kg_logits = self.fc2(kg_logits)
-        kg_logits = res + kg_logits
+        kg_logits = self.activate_fn(kg_logits)
 
         return p * lm_logits + (1-p) * kg_logits # lm_logits = (B, Ld, N)
         

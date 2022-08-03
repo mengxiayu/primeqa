@@ -1,5 +1,6 @@
 # from data collator (index, target_ids, target_mask, passage_ids, passage_masks)
 
+from threading import local
 import tokenizers
 import torch
 import torch.nn.functional as F
@@ -88,8 +89,8 @@ class FiDBART(transformers.BartForConditionalGeneration):
             query=query,
             )
 
-        # weight more for kg_logits
-        final_logits = lm_logits + 3*kg_logits
+        # Option 1: equally select
+        final_logits = lm_logits + kg_logits
 
         # output
         masked_lm_loss = None
@@ -124,22 +125,21 @@ class FiDBART(transformers.BartForConditionalGeneration):
         '''
         indicator = torch.zeros(lm_logits.shape)
         for idx,exp_id in enumerate(example_ids):
-            # str_list = self.knowledge_trie[exp_id] # TODO pass it from the dataset
-            # ext_trie = marisa_trie.Trie(str_list)
-            ext_trie = self.knowledge_trie[exp_id]
+
+            # ext_trie = self.knowledge_trie[exp_id]
             local_kg = query[idx] # a list of tokens
-            tmp_kg = local_kg
-            related_kgs = set()
-            for i in range(max_hops):
-                new_knowledge = []
-                for ent in tmp_kg:
-                    for span in ext_trie.keys(ent):
-                        new_knowledge.extend(span.split(' '))
-                new_knowledge = set(new_knowledge)
-                tmp_kg = list(new_knowledge)
-                related_kgs |= new_knowledge # this is the kg vocab
+            # tmp_kg = local_kg
+            related_kgs = set(local_kg)
+            # for i in range(max_hops):
+            #     new_knowledge = []
+            #     for ent in tmp_kg:
+            #         for span in ext_trie.keys(ent):
+            #             new_knowledge.extend(span.split(' '))
+            #     new_knowledge = set(new_knowledge)
+            #     tmp_kg = list(new_knowledge)
+            #     related_kgs |= new_knowledge # this is the kg vocab
             token_ids = tokenizer(' '.join(list(related_kgs)))["input_ids"]
-            indicator[idx, :, token_ids] = 1
+            indicator[idx, :, token_ids[1:-1]] = 1
         indicator = indicator.to(lm_logits.device)
         kg_logits = lm_logits * indicator
             

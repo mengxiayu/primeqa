@@ -16,9 +16,9 @@ from datasets import load_dataset
 import transformers
 from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTrainer, FidDataCollator
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
-from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks, preprocess_eli5_validation_function_cmsks
+from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks_oracle, preprocess_eli5_validation_function_cmsks_oracle
 from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_function
-from primeqa.lfqa_kb.models.cmsks_static_1v3 import FiDBART
+from primeqa.lfqa_kb.models.cmsks_score_oracle import FiDBART
 from transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -491,7 +491,7 @@ def main():
 
         with training_args.main_process_first(desc="train dataset map pre-processing"):
             train_dataset = train_dataset.map(
-                preprocess_eli5_function_cmsks,
+                preprocess_eli5_function_cmsks_oracle,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
@@ -515,7 +515,7 @@ def main():
         # Validation Feature Creation
         with training_args.main_process_first(desc="validation dataset map pre-processing"):
             eval_dataset = eval_examples.map(
-                preprocess_eli5_validation_function_cmsks,
+                preprocess_eli5_validation_function_cmsks_oracle,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,
@@ -538,7 +538,7 @@ def main():
         # Predict Feature Creation
         with training_args.main_process_first(desc="prediction dataset map pre-processing"):
             predict_dataset = predict_examples.map(
-                preprocess_eli5_validation_function_cmsks,
+                preprocess_eli5_validation_function_cmsks_oracle,
                 fn_kwargs=args_for_preprocess,
                 batched=True,
                 num_proc=data_args.preprocessing_num_workers,

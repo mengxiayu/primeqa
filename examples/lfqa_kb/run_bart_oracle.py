@@ -9,7 +9,6 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
-import numpy as np
 
 import datasets
 from datasets import load_dataset
@@ -17,7 +16,7 @@ from datasets import load_dataset
 import transformers
 from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTrainer
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
-from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function, preprocess_eli5_validation_function
+from primeqa.lfqa_kb.processors.preprocessors.eli5_oracle import preprocess_eli5_function, preprocess_eli5_validation_function
 from primeqa.lfqa_kb.processors.preprocessors.asqa import preprocess_asqa_function, preprocess_asqa_validation_function
 from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_function
 from primeqa.lfqa_kb.processors.postprocessors.asqa import postprocess_asqa_function
