@@ -76,6 +76,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     questions = examples[data_args.question_column]
     answers = examples[data_args.answer_column]
     contexts = examples[data_args.context_column]
+    vocabs = examples["kg_vocab"]
     n_doc = data_args.n_context
 
     def top_passages(ctx):
@@ -84,18 +85,18 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     def append_question(passages, question, vocab):
         vocab_text = " ".join(vocab)
         return [f"question: {question} passage: {t} vocabulary: {vocab_text}" for t in passages]
-    def get_nonstop(x):
-        y = [
-            token.lemma_ for token in nlp(x) if
-            not token.is_stop
-            and not token.is_currency
-            and not token.is_digit
-            and not token.is_punct
-            and not token.is_space
-            and not token.like_num
-            and not token.pos_ == "PROPN"
-        ]
-        return list(set(y))
+    # def get_nonstop(x):
+    #     y = [
+    #         token.lemma_ for token in nlp(x) if
+    #         not token.is_stop
+    #         and not token.is_currency
+    #         and not token.is_digit
+    #         and not token.is_punct
+    #         and not token.is_space
+    #         and not token.like_num
+    #         and not token.pos_ == "PROPN"
+    #     ]
+    #     return list(set(y))
     # multiple answers for training
     if mode == "train":
         inputs = []
@@ -103,8 +104,9 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
             answer_list = answers[idx]
+            kg_vocab = vocabs[idx]
             if len(answer_list) == 0:
-                inputs.append(question_passages)
+                inputs.append(append_question(passages, q, kg_vocab))
                 targets.append("")  
                 indices.append(examples["id"][idx])
             else: # multiple answers
@@ -112,7 +114,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                     a = answer_data["answer"]
                     answer_score = answer_data["meta"]["score"]     
                     if answer_score >= 3: # only takes answers whose score>3
-                        question_passages = append_question(passages, q, get_nonstop(a))
+                        question_passages = append_question(passages, q, kg_vocab)
                         inputs.append(question_passages)
                         targets.append(a)
                         indices.append(examples["id"][idx])
@@ -121,7 +123,8 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         inputs = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
-            question_passages = append_question(passages, q, get_nonstop(answers[idx][0]["answer"]))
+            kg_vocab = vocabs[idx]
+            question_passages = append_question(passages, q, kg_vocab)
             inputs.append(question_passages)
             indices.append(examples["id"][idx])
         targets = [answer[0]["answer"] if len(answer) > 0 else "" for answer in answers]

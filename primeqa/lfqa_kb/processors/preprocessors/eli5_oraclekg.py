@@ -10,9 +10,7 @@ Token.set_extension('is_stop', getter=stop_words_getter, force=True)
 nlp = spacy.load("en_core_web_lg", disable=["parser","ner"])
 
 
-
-#### For BART + Answer words in input ####
-
+#### For BART + Answer-KG overlapping words in input ####
 
 def preprocess_eli5_validation_function(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
     inputs, targets = preprocess_eli5_batch(examples, data_args, mode="eval")
@@ -71,41 +69,28 @@ def preprocess_eli5_batch(examples, data_args, mode="train") -> Tuple[List[str],
     # concatenate contexts with the question if they exist
     questions = examples[data_args.question_column]
     answers = examples[data_args.answer_column]
+    kg_vocabs = examples["kg_vocabs"]
 
-    def generate_input(_question, answer_words): # for oracle setting
-        return " ".join(["question:", _question.lstrip(), "vocabulary:"] + answer_words)
-
-    def get_initial_query(x):
-        y = [
-            token.lemma_ for token in nlp(x) if
-            not token.is_stop
-            and not token.is_currency
-            and not token.is_digit
-            and not token.is_punct
-            and not token.is_space
-            and not token.like_num
-            and not token.pos_ == "PROPN"
-        ]
-        return list(set(y))
+    def generate_input(_question, vocab): # for oracle setting
+        return " ".join(["question:", _question.lstrip(), "vocabulary:"] + vocab)
 
     # multiple answers for training
     if mode == "train":
         inputs = []
         targets = []
         for idx,question in enumerate(questions):
-
             answer_list = answers[idx]
             if len(answer_list) == 0:
                 continue 
             else: # multiple answers
-                for answer_data in answer_list:
+                answer_list = [ans for ans in answer_list if ans["meta"]["score"] >= 3]
+                assert len(answer_list) == len(kg_vocabs[idx])
+                for i, answer_data in enumerate(answer_list):
                     a = answer_data["answer"]
-                    answer_score = answer_data["meta"]["score"]     
-                    if answer_score >= 3: # only takes answers whose score>3
-                        answer_words = get_initial_query(a)
-                        q = generate_input(question, answer_words)
-                        inputs.append(q)
-                        targets.append(a)
+                    kg_words = kg_vocabs[idx][i]
+                    q = generate_input(question, kg_words)
+                    inputs.append(q)
+                    targets.append(a)
                     
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
@@ -115,16 +100,20 @@ def preprocess_eli5_batch(examples, data_args, mode="train") -> Tuple[List[str],
             if len(answer_list) == 0:
                 continue
             else:
-                for answer_data in answer_list:
+                for i, answer_data in enumerate(answer_list):
                     a = answer_data["answer"]
-                    answer_words = get_initial_query(a)
-                    q = generate_input(question, answer_words)
+                    kg_words = kg_vocabs[idx][i]
+                    q = generate_input(question, kg_words)
                     inputs.append(q)
                     targets.append(a)   
             
     else:
         raise ValueError("mode requires eval or train")
     return inputs, targets
+
+
+
+
 
 
 #### For FiD Oracle ####
@@ -193,6 +182,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     questions = examples[data_args.question_column]
     answers = examples[data_args.answer_column]
     contexts = examples[data_args.context_column]
+    kg_vocabs = examples["kg_vocab"]
     n_doc = data_args.n_context
 
     def top_passages(ctx):
@@ -201,18 +191,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     def append_question(passages, question, vocab):
         vocab_text = " ".join(vocab)
         return [f"question: {question} passage: {t} vocabulary: {vocab_text}" for t in passages]
-    def get_nonstop(x):
-        y = [
-            token.lemma_ for token in nlp(x) if
-            not token.is_stop
-            and not token.is_currency
-            and not token.is_digit
-            and not token.is_punct
-            and not token.is_space
-            and not token.like_num
-            and not token.pos_ == "PROPN"
-        ]
-        return list(set(y))
+
     # multiple answers for training
     if mode == "train":
         inputs = []
@@ -221,24 +200,24 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             passages = top_passages(contexts[idx])
             answer_list = answers[idx]
             if len(answer_list) == 0:
-                inputs.append("")
+                inputs.append(append_question(passages, q, []))
                 targets.append("")  
                 indices.append(examples["id"][idx])
             else: # multiple answers
-                for answer_data in answer_list:
+                answer_list = [x for x in answer_list if x["meta"]["score"] >= 3]
+                assert len(kg_vocabs[idx]) == len(answer_list)
+                for i, answer_data in enumerate(answer_list):
                     a = answer_data["answer"]
-                    answer_score = answer_data["meta"]["score"]     
-                    if answer_score >= 3: # only takes answers whose score>3
-                        question_passages = append_question(passages, q, get_nonstop(a))
-                        inputs.append(question_passages)
-                        targets.append(a)
-                        indices.append(examples["id"][idx])
-                    
+                    question_passages = append_question(passages, q, kg_vocabs[idx][i])
+                    inputs.append(question_passages)
+                    targets.append(a)
+                    indices.append(examples["id"][idx])
+                
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
-            question_passages = append_question(passages, q, get_nonstop(answers[idx][0]["answer"]))
+            question_passages = append_question(passages, q, kg_vocabs[idx][0])
             inputs.append(question_passages)
             indices.append(examples["id"][idx])
         targets = [answer[0]["answer"] if len(answer) > 0 else "" for answer in answers]

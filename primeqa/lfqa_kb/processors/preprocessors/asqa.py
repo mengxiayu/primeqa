@@ -1,3 +1,6 @@
+import torch
+
+# --- for BART --- #
 def preprocess_asqa_validation_function(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
     inputs, targets = preprocess_asqa_batch(examples, data_args, mode="eval")
 
@@ -27,7 +30,6 @@ def preprocess_asqa_validation_function(examples, data_args, tokenizer, max_seq_
 
     model_inputs["labels"] = labels["input_ids"]
     return model_inputs
-
 
 def preprocess_asqa_function(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
     inputs, targets = preprocess_asqa_batch(examples, data_args, mode="train")
@@ -67,3 +69,31 @@ def preprocess_asqa_batch(examples, data_args, mode="train"):
     else:
         raise ValueError("mode requires eval or train")
     return inputs, targets
+
+
+
+# --- for FiD ---
+
+def encode_passages(batch_text_passages, tokenizer, max_length):
+    '''
+    Param: 
+        batch_text_passages: (bsz, n_doc, )
+    '''
+    passage_ids, passage_masks = [], []
+    for text_passages in batch_text_passages:
+        # p = tokenizer.batch_encode_plus(
+        p = tokenizer(
+            text_passages,
+            padding='max_length',
+            max_length=max_length,
+            return_tensors='pt',
+            truncation=True
+        )
+        passage_ids.append(p['input_ids'][None])
+        passage_masks.append(p['attention_mask'][None])
+
+    passage_ids = torch.cat(passage_ids, dim=0)
+    passage_masks = torch.cat(passage_masks, dim=0)
+    return passage_ids.tolist(), passage_masks.tolist()
+
+# TODO preprocess for FiD
