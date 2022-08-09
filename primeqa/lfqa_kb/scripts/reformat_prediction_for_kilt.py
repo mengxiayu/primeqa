@@ -1,7 +1,9 @@
 import json
+import argparse
+
 
 def reformat_prediction_file(kilt_file, prediction_file):
-    assert prediction_file.endswith(".json") and kilt_data_file.endswith(".jsonl")
+    assert prediction_file.endswith(".json") and kilt_file.endswith(".json")
     with open(prediction_file, 'r') as f:
         predictions = json.loads(f.read())
     id2pred = {}
@@ -20,9 +22,10 @@ def reformat_prediction_file(kilt_file, prediction_file):
                 pred = id2pred[data["id"]]
                 result["output"] = [{"answer": pred}]
                 fw.write(json.dumps(result) + "\n")
-
+    print("reformatted prediction file saved.")
 if __name__ == "__main__":
-    kilt_data_file = "/dccstor/myu/OneQA/oneqa/lfqa_kb/data_models/kilt_eli5/eli5-dev-kilt.jsonl"
-    prediction_file = "/dccstor/myu/experiments/eli5_large_beam/eval_predictions.json"
-    
-    reformat_prediction_file(kilt_data_file, prediction_file)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--kilt_file", help="Gold KILT file")
+    parser.add_argument("--pred_file", help="Gold KILT file")
+    args = parser.parse_args()
+    reformat_prediction_file(args.kilt_file, args.pred_file)
