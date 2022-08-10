@@ -1,6 +1,7 @@
 import json
 import argparse
 
+# reformat prediction file so that it can be directly used as input file for KILT evaluation
 
 def reformat_prediction_file(kilt_file, prediction_file):
     assert prediction_file.endswith(".json") and kilt_file.endswith(".json")

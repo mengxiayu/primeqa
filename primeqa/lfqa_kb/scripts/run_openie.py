@@ -16,7 +16,6 @@ from spacy.tokens import Token
 from tqdm import tqdm
 # from transformers import RagRetriever, RagTokenForGeneration, RagTokenizer
 
-# import KID
  
 # ipywidgets
 
@@ -35,46 +34,6 @@ properties = {
     'openie.max_entailments_per_clause': 500,
     'openie.affinity_probability_cap': 2 / 3,
 }
-
-# retriever_tokenizer = RagTokenizer.from_pretrained("facebook/rag-token-nq")
-# retriever = RagRetriever.from_pretrained(
-#     "facebook/rag-token-nq", index_name="legacy", use_dummy_dataset=False
-# )
-# rag_model = RagTokenForGeneration.from_pretrained(
-#     "facebook/rag-token-nq", retriever=retriever
-# )
-
-# kg_dataset = load_dataset("wiki_dpr", 'psgs_w100.nq.exact')
-
-
-# def return_retrieved_psgs(
-#     tokenizer: Any, retriever: Any, rag: Any, query: str, k_docs: int
-# ):
-#     """Retrieve docs by query.
-
-#     :param tokenizer: the tokenizer of RAG
-#     :param rag: the RAG model loaded
-#     :param retriever: the retriever of RAG
-#     :param query: the question/context of the NLG task. A string.
-#     :param k_docs: the number of documents to be retrieved
-#     :return: two lists. [doc ids] and [doc scores].
-#     """
-#     inputs = tokenizer(query, return_tensors="pt")
-#     input_ids = inputs["input_ids"]
-
-#     question_hidden_states = rag.question_encoder(input_ids)[0]
-#     docs_dict = retriever(
-#         input_ids.numpy(),
-#         question_hidden_states.detach().numpy(),
-#         return_tensors="pt",
-#         n_docs=k_docs
-#     )
-#     doc_scores = torch.bmm(
-#         question_hidden_states.unsqueeze(1),
-#         docs_dict["retrieved_doc_embeds"].float().transpose(1, 2)
-#     ).squeeze(1)
-#     return docs_dict['doc_ids'].detach().cpu().numpy().tolist()[0], doc_scores.detach(
-#     ).cpu().numpy().tolist()[0]
 
 
 def convert2kg(texts: List[str], client: Any):
@@ -102,8 +61,6 @@ def convert2kg(texts: List[str], client: Any):
             for triple in sent.openieTriple:
                 score = triple.confidence
                 # rel = triple.relation
-                # print(s, score)
-                # s = ' '.join(return_entities(s)) # FIXME The original KID code doesn't do preprocessing but the paper mentioned (lower, preprocessing, etc) 
                 if score < 0.8:
                     continue
 
@@ -115,11 +72,11 @@ def convert2kg(texts: List[str], client: Any):
 
 
 
-def return_entities(sent: str):
-    return [
-        token.lemma_.lower() for token in nlp(sent)
-        if token.pos_ in ['PROPN', 'NOUN'] and not token.is_stop
-    ]
+# def return_entities(sent: str):
+#     return [
+#         token.lemma_.lower() for token in nlp(sent)
+#         if token.pos_ in ['PROPN', 'NOUN'] and not token.is_stop
+#     ]
 
 
 
@@ -174,7 +131,7 @@ def create_external_graph(task_path, examples, start=None, end=None, port=None):
     examples = examples[start:end]
     fw = open(task_path + f"id2kg_{start}_{end}.json", 'w')
     with CoreNLPClient(annotators=['openie'], 
-                   memory='8G', endpoint=port, be_quiet=True, properties=properties) as client:
+                   memory='16G', endpoint=port, be_quiet=True, properties=properties) as client:
         for ex in tqdm(examples, total=len(examples)):
             
             kg_docs_text = ex["passages"] # a list of strings

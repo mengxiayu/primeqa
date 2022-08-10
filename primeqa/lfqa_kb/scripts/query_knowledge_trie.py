@@ -34,9 +34,9 @@ def get_initial_query(question):
 
 
 kg_file = "/dccstor/myu/experiments/knowledge_trie/eli5_openie_merge/id2kg.pickle"
-data_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr.json"
-output_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr-kg-hop2.json"
-max_hops = 2
+data_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json"
+output_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-kg-hop1.json"
+max_hops = 1
 
 knowledge_tries = pickle.load(open(kg_file, 'rb'))
 

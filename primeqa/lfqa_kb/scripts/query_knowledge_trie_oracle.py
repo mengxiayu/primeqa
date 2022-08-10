@@ -43,8 +43,8 @@ data_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-single.json"
 output_file = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-kg-oracle.json"
 max_hops = 1
 
-# knowledge_tries = pickle.load(open(kg_file, 'rb'))
 
+# get answer oracle and save to file
 
 with open(data_file, 'r') as f:
     data_lines = []
