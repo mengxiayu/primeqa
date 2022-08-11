@@ -55,8 +55,13 @@ For OpenIE KG construction:
 
 **Note that `neuralcoref` is not compatible with `spacy` version 3. So I recommend using another environement for KG construction before we improve the code **
 
+requirements:
+- marisa_trie
+- neuralcoref
+- spacy==2.1.0 (and download the model with `python -m spacy download en_core_web_sm`)
 
-1. To extract OpenIE triples from text and save as json files, run `primeqa/examples/lfqa_kb/run_scripts/run_openie.sh`. Needs to specify the start and end index of the data examples. The code is in `primeqa/primeqa/lfqa_kb/scripts/run_openie.py`
+
+1. To extract OpenIE triples from text and save as json files, run `primeqa/examples/lfqa_kb/run_scripts/run_openie.sh`. Needs to specify the start and end index of the data examples (I did 5000 at the time). The code is in `primeqa/primeqa/lfqa_kb/scripts/run_openie.py`
 2. To merge triples into graphs and save as pkl files., run `/dccstor/myu/primeqa/examples/lfqa_kb/run_scripts/postprocess_openie.sh`.
 3. To merge graphs of dev and train set, use `/dccstor/myu/primeqa/primeqa/lfqa_kb/scripts/merge_kg.py`
 
