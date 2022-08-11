@@ -49,7 +49,8 @@ python /dccstor/myu/primeqa/examples/lfqa_kb/run_lfqa.py \
   --preprocessing_num_workers 10 \
 ```
 
-### To Train DPR+BART
+### To Train BART + supporting passages
+The `n_context` and the `context_column` should both be included in the script, in this case.
 ```sh
 output_dir=/dccstor/myu/experiments/eli5_dprbart_large_beam_0719
 
