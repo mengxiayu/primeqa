@@ -129,7 +129,9 @@ python /dccstor/myu/primeqa/examples/lfqa_kb/run_fid.py \
 
 
 
-### CopyScore
+### CopyScore / CopyEmbed
+For CopyEmbed, change `run_cmsks_score.py` -> `run_cmsks_learn_embed.py`
+
 ```
 output_dir=/dccstor/myu/experiments/eli5_cmsks_score_hop2_ctx3_greedy_3e05_0804
 jbsub -q x86_24h -cores 10+1 -mem 40g -require 'a100_80gb' -proj 'eli5' -name 'cp_score_hop2_greedy' -o ${output_dir}/train.log \
@@ -166,14 +168,15 @@ python /dccstor/myu/primeqa/examples/lfqa_kb/run_cmsks_score.py \
   --generation_num_beams 1 \
 ```
 
-### CopyEmbed
+
+### CopyScore / CopyEmbed + ANS_oracle
 ```
-output_dir=/dccstor/myu/experiments/eli5_cmsks_embed_hop2_ctx3_greedy_3e05_0804
-jbsub -q x86_24h -cores 10+1 -mem 40g -require 'a100_80gb' -proj 'eli5' -name 'cp_embed_hop2_greedy' -o ${output_dir}/train.log \
-python /dccstor/myu/primeqa/examples/lfqa_kb/run_cmsks_learn_embed.py \
+output_dir=/dccstor/myu/experiments/eli5_cmsks_score_oracle_ctx3_3e05_greedy_0803
+jbsub -q x86_24h -cores 10+1 -mem 40g -require 'a100_80gb' -proj 'eli5' -name 'cp_score_orcl_grdy' -o ${output_dir}/train.log \
+python /dccstor/myu/primeqa/examples/lfqa_kb/run_cmsks_score_oracle.py \
   --model_name_or_path facebook/bart-large \
   --train_file /dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr.json \
-  --validation_file /dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json \
+  --validation_file /dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr-single.json \
   --question_column input \
   --answer_column output \
   --context_column passages \
@@ -196,12 +199,13 @@ python /dccstor/myu/primeqa/examples/lfqa_kb/run_cmsks_learn_embed.py \
   --save_strategy epoch \
   --load_best_model_at_end \
   --metric_for_best_model rougeL \
-  --save_total_limit 2 \
+  --save_total_limit 3 \
   --n_context 3 \
   --kg_file /dccstor/myu/experiments/knowledge_trie/eli5_openie_merge/id2kg.pickle \
   --preprocessing_num_workers 10 \
   --generation_num_beams 1 \
 ```
+
 
 ### To FiD + KG (To be updated)
 ```
