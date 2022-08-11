@@ -5,6 +5,9 @@ The code is implemented with Huggingface 4.17. The pipeline is modified from [th
 ## Requirements
 - primeqa
 - datasets
+- rouge
+- spacy (Also download the model with this command `python -m spacy download en_core_web_lg`)
+- marisa_trie
 
 ## Training
 You can train the model with the following scripts.
