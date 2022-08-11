@@ -214,3 +214,17 @@ python /dccstor/myu/primeqa/examples/lfqa_kb/run_cmsks_score_oracle.py \
 ### DPR
 
 *re2g_v2 branch*
+```
+export DS=eli5
+export CORPUS=http://9.59.194.174:5001
+working_dir=/dccstor/myu/retrieval
+data_split=train
+
+jbsub -q x86_24h -cores 1+1 -mem 32g -require 'v100' -proj 'oneqa' -name 'dpr_eli5_train' -o ${working_dir}/run_dpr_eli5_${data_split}.log \
+python ${working_dir}/OneQA/examples/re2g/dpr/dpr_apply.py \
+  --kilt_data ${working_dir}/data/KILT/${DS}/${DS}-${data_split}-kilt.json  \
+  --output ${working_dir}/data/KILT/${DS}/predictions/dpr/eli5_re2g_${data_split}.json  --include_passages \
+  --corpus_endpoint ${CORPUS} --n_docs_for_provenance 20 \
+  --qry_encoder_path  /dccstor/few-shot-rel/eli5/models/re2g_nq/qry_encoder
+```
+
