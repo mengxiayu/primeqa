@@ -7,7 +7,6 @@ import marisa_trie
 import neuralcoref
 # import pandas as pd
 import spacy
-import torch
 # from datasets import load_dataset
 # from openie import StanfordOpenIE
 from spacy.lang.en.stop_words import STOP_WORDS

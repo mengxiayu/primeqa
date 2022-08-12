@@ -36,8 +36,8 @@ def docs2sents(texts):
 wdparser_url = 'http://knowgen.sl.cloud9.ibm.com/wdparser'
 mode = 'precision'  # mode = {'simple', 'precision', 'balanced', 'recall', 'thinker'}
 
-ids, exp_docs = load_passage_sentences("/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json", 100)
-out_fn = open ("/dccstor/myu/experiments/wikiparser/eli5_dev/eli5_wikiparse_dev_100.json", 'w')
+ids, exp_docs = load_passage_sentences("/dccstor/myu/data/kilt_eli5_dpr/eli5-train-kilt-dpr.json", 101)
+out_fn = open ("/dccstor/myu/experiments/wikiparser/eli5_dev/eli5_wikiparse_train_100.json", 'w')
 
 for id, docs in zip(ids, exp_docs):
     sentences = docs2sents(docs)

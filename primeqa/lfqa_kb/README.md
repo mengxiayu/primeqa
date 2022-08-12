@@ -59,9 +59,21 @@ requirements:
 - marisa_trie
 - neuralcoref
 - spacy==2.1.0 (and download the model with `python -m spacy download en_core_web_sm`)
-
+- stanza
 
 1. To extract OpenIE triples from text and save as json files, run `primeqa/examples/lfqa_kb/run_scripts/run_openie.sh`. Needs to specify the start and end index of the data examples (I did 5000 at the time). The code is in `primeqa/primeqa/lfqa_kb/scripts/run_openie.py`
 2. To merge triples into graphs and save as pkl files., run `/dccstor/myu/primeqa/examples/lfqa_kb/run_scripts/postprocess_openie.sh`.
 3. To merge graphs of dev and train set, use `/dccstor/myu/primeqa/primeqa/lfqa_kb/scripts/merge_kg.py`
 
+For Wikiparser triple extraction:
+
+- To send batch inputs, use `run_wikiparser.py`.
+- To try on some examples, use `run_wikiparser.ipynb`
+
+
+For overlap analysis:
+- `kg_openie_answer_overlap.ipynb` for analysis.
+- For preprocess (lemmatization, removing stopwords, lowercase), use `save_nonstop_words.py`
+
+For individual evaluation (rougeL):
+`evaluate_each_example.py`
