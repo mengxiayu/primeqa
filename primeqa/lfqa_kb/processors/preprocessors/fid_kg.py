@@ -10,7 +10,7 @@ Token.set_extension('is_stop', getter=stop_words_getter, force=True)
 nlp = spacy.load("en_core_web_lg", disable=["parser","ner"])
 
 
-#### For FiD KG ####
+#### For FiD + n-hop KG ####
 # from 
 # https://github.com/facebookresearch/FiD/blob/25ed1ff0fe0288b80fb5e9e5de8d6346b94b8d48/src/data.py#L73
 def encode_passages(batch_text_passages, tokenizer, max_length):

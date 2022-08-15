@@ -39,9 +39,9 @@ def _metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     max_idx = np.argmax(scores_for_ground_truths)
     return scores_for_ground_truths[max_idx], ground_truths[max_idx] 
 
-pred_fn = "/dccstor/myu/experiments/eli5_bart_beam_0719/eval_predictions.json"
+pred_fn = "/dccstor/myu/experiments/eli5_fid_oraclekg_greedy_ctx3_3e05_0804/eval_predictions.json"
 data_fn = "/dccstor/myu/data/kilt_eli5_dpr/eli5-dev-kilt-dpr.json"
-output_fn = "/dccstor/myu/experiments/eli5_bart_beam_0719/eval_pred_scores.json"
+output_fn = "/dccstor/myu/experiments/eli5_fid_oraclekg_greedy_ctx3_3e05_0804/eval_pred_scores.json"
 print(pred_fn)
 print(output_fn)
 
@@ -85,7 +85,7 @@ with open(output_fn, 'w') as f:
             "prediction_text" : pred,
             "max_rouge_ref" : ref,
             "rouge-L": f"{line*100:.2f}",
-            "overlaps": {"count": len(words_pred & words_ref), "precision": (len(words_pred & words_ref)/len(words_pred))*100, "recall": (len(words_pred & words_ref)/len(words_ref))*100}
+            "overlaps": {"count": len(words_pred & words_ref), "precision": (len(words_pred & words_ref)/len(words_pred))*100 if len(words_pred) > 0 else 0, "recall": (len(words_pred & words_ref)/len(words_ref))*100 if len(words_ref) > 0 else 0}
         }
         f.write(json.dumps(tmp_record) + '\n')
     print("saved generation scores.")

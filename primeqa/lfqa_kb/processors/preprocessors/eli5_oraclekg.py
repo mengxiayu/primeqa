@@ -10,7 +10,7 @@ Token.set_extension('is_stop', getter=stop_words_getter, force=True)
 nlp = spacy.load("en_core_web_lg", disable=["parser","ner"])
 
 
-#### For BART + Answer-KG overlapping words in input ####
+#### For BART + KG_oracle ####
 
 def preprocess_eli5_validation_function(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
     inputs, targets = preprocess_eli5_batch(examples, data_args, mode="eval")
@@ -113,10 +113,7 @@ def preprocess_eli5_batch(examples, data_args, mode="train") -> Tuple[List[str],
 
 
 
-
-
-
-#### For FiD Oracle ####
+#### For FiD + KG_oracle ####
 # from 
 # https://github.com/facebookresearch/FiD/blob/25ed1ff0fe0288b80fb5e9e5de8d6346b94b8d48/src/data.py#L73
 def encode_passages(batch_text_passages, tokenizer, max_length):

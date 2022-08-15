@@ -146,8 +146,6 @@ def preprocess_eli5_validation_function_cmsks_oracle(examples, data_args, tokeni
     model_inputs["query"] = queries
     return model_inputs
 
-
-
 def preprocess_eli5_batch_cmsks_oracle(examples, data_args, mode="train") -> Tuple[List[str], List[str]]:
     '''
     queries are oracle KG words: answer words
@@ -332,8 +330,6 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
 
 
 #### For BART ####
-
-
 def preprocess_eli5_validation_function(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
     inputs, targets = preprocess_eli5_batch(examples, data_args, mode="eval")
 
