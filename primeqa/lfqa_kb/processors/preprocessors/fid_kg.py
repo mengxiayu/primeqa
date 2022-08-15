@@ -84,7 +84,8 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         return [ctx[i]["text"] for i in range(n_doc)]
     def append_question(passages, question, vocab):
         vocab_text = " ".join(vocab)
-        return [f"question: {question} passage: {t} vocabulary: {vocab_text}" for t in passages]
+        result = [f"question: {question} passage: {vocab_text}"] + [f"question: {question} passage: {t}" for t in passages]
+        return result
     # def get_nonstop(x):
     #     y = [
     #         token.lemma_ for token in nlp(x) if
