@@ -18,7 +18,7 @@ from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTra
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
 from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks, preprocess_eli5_validation_function_cmsks
 from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_function
-from primeqa.lfqa_kb.models.cmsks_minmax import FiDBART
+from primeqa.lfqa_kb.models.experimental.cmsks_static_equalminmax import FiDBART
 from transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -399,7 +399,7 @@ def main():
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
         )
-        model = FiDBART(bart.config, data_args.kg_file) # TODO implement this argument
+        model = FiDBART(bart.config, data_args.kg_file)
         model.load_pretrained(bart.state_dict())
     else:
         model = FiDBART.from_pretrained(

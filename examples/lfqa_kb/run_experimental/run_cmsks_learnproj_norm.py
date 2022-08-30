@@ -18,7 +18,7 @@ from primeqa.lfqa_kb.trainers.seq2seq_trainer import QuestionAnsweringSeq2SeqTra
 from primeqa.lfqa_kb.metrics.utils import compute_metrics
 from primeqa.lfqa_kb.processors.preprocessors.eli5 import preprocess_eli5_function_cmsks, preprocess_eli5_validation_function_cmsks
 from primeqa.lfqa_kb.processors.postprocessors.eli5 import postprocess_eli5_function
-from primeqa.lfqa_kb.models.cmsks_static_equal import FiDBART
+from primeqa.lfqa_kb.models.experimental.cmsks_learnproj_norm import FiDBART
 from transformers import (
     AutoConfig,
     AutoTokenizer,
