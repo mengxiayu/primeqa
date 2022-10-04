@@ -107,6 +107,27 @@ class DataTrainingArguments:
         default="answers",
         metadata={"help": "The name of the column in the datasets containing the answers (for question answering)."},
     )
+    kg_column: Optional[str] = field(
+        default=None,
+        metadata={"help": "The name of the column in the datasets containing the kg (for question answering)."},
+    )
+    keep_top_n_answer: Optional[int] = field(
+        default=None,
+        metadata={"help": "The number of gold answers to keep (based on score). Default is to keep all."},
+    )
+    vocab_threshold: Optional[int] = field(
+        default=None,
+        metadata={"help": "The threshold for the occurence of words in the kg to be kept. Default is to keep all."},
+    )
+    use_kg_oracle:  bool = field(
+        default=False, metadata={"help": "Use the kg oracle if true"}
+    )
+    apply_filter:  bool = field(
+        default=False, metadata={"help": "Apply filters to training data"}
+    )
+    p_b4_q:  bool = field(
+        default=False, metadata={"help": "Put the passages before the question (default is question before passages)"}
+    )
     train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
     validation_file: Optional[str] = field(
         default=None,
@@ -230,13 +251,13 @@ class DataTrainingArguments:
         else:
             if self.train_file is not None:
                 extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
+                assert extension in ["csv", "json", "gz"], "`train_file` should be a csv or a json file."
             if self.validation_file is not None:
                 extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
+                assert extension in ["csv", "json", "gz"], "`validation_file` should be a csv or a json file."
             if self.test_file is not None:
                 extension = self.test_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`test_file` should be a csv or a json file."
+                assert extension in ["csv", "json", "gz"], "`test_file` should be a csv or a json file."
         if self.val_max_answer_length is None:
             self.val_max_answer_length = self.max_answer_length
 
@@ -358,12 +379,18 @@ def main():
         raw_datasets = {}
         if data_args.train_file is not None:
             extension = data_args.train_file.split(".")[-1]
+            if extension == "gz":
+                extension = "json"
             raw_datasets["train"] = load_dataset(extension, data_files={"train": data_args.train_file}, split="train")
         if data_args.validation_file is not None:
             extension = data_args.validation_file.split(".")[-1]
+            if extension == "gz":
+                extension = "json"
             raw_datasets["validation"] = load_dataset(extension, data_files={"validation": data_args.validation_file}, split="validation")
         if data_args.test_file is not None:
             extension = data_args.test_file.split(".")[-1]
+            if extension == "gz":
+                extension = "json"
             raw_datasets["test"] = load_dataset(extension, data_files={"test": data_args.test_file}, split="validation")
         
             # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
@@ -504,10 +531,10 @@ def main():
                 load_from_cache_file=not data_args.overwrite_cache,
                 desc="Running tokenizer on train dataset",
             )
-        if data_args.max_train_samples is not None:
-            # Number of samples might increase during Feature Creation, We select only specified max samples
-            max_train_samples = min(len(train_dataset), data_args.max_train_samples)
-            train_dataset = train_dataset.select(range(max_train_samples))
+        # if data_args.max_train_samples is not None:
+        #     # Number of samples might increase during Feature Creation, We select only specified max samples
+        #     max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+        #     train_dataset = train_dataset.select(range(max_train_samples))
 
     if training_args.do_eval:
         if "validation" not in raw_datasets:
