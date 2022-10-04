@@ -107,6 +107,27 @@ class DataTrainingArguments:
         default="answers",
         metadata={"help": "The name of the column in the datasets containing the answers (for question answering)."},
     )
+    kg_column: Optional[str] = field(
+        default=None,
+        metadata={"help": "The name of the column in the datasets containing the kg (for question answering)."},
+    )
+    keep_top_n_answer: Optional[int] = field(
+        default=None,
+        metadata={"help": "The number of gold answers to keep (based on score). Default is to keep all."},
+    )
+    vocab_threshold: Optional[int] = field(
+        default=None,
+        metadata={"help": "The threshold for the occurence of words in the kg to be kept. Default is to keep all."},
+    )
+    use_kg_oracle:  bool = field(
+        default=False, metadata={"help": "Use the kg oracle if true"}
+    )
+    apply_filter:  bool = field(
+        default=False, metadata={"help": "Apply filters to training data"}
+    )
+    p_b4_q:  bool = field(
+        default=False, metadata={"help": "Put the passages before the question (default is question before passages)"}
+    )
     train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
     validation_file: Optional[str] = field(
         default=None,

@@ -76,28 +76,57 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     questions = examples[data_args.question_column]
     answers = examples[data_args.answer_column]
     contexts = examples[data_args.context_column]
-    vocabs = examples["kg_vocab"]
+    if data_args.kg_column is not None:
+        vocabs = examples[data_args.kg_column]
     n_doc = data_args.n_context
 
     def top_passages(ctx):
         assert n_doc <= len(ctx) 
         return [ctx[i]["text"] for i in range(n_doc)]
+    def get_top_answers(answers):
+        # sort answers by recall then take top n
+        answers_with_recall = {}
+        top_answers = []
+        for answer in answers:
+            if mode == 'train' and answer['meta']['score'] < 3:
+                continue
+            # if answer['meta'] is None or 'recall' not in answer['meta'] or answer['meta']['recall'] == None:
+            #      continue
+            if data_args.keep_top_n_answer is not None:
+                answers_with_recall[answer['answer']] = answer['meta']['recall']
+            else:
+                top_answers.append(answer['answer'])
+        if data_args.keep_top_n_answer is None:
+            return top_answers
+        answers_with_recall = dict(sorted(answers_with_recall.items(), key=lambda item: item[1], reverse=True))
+        count = 0
+        for answer in answers_with_recall:
+            count+= 1
+            top_answers.append(answer)
+            if data_args.keep_top_n_answer is not None and count >= data_args.keep_top_n_answer:
+                break
+        return top_answers
     def append_question(passages, question, vocab):
-        vocab_text = " ".join(vocab)
-        result = [f"question: {question} passage: {vocab_text}"] + [f"question: {question} passage: {t}" for t in passages]
-        return result
-    # def get_nonstop(x):
-    #     y = [
-    #         token.lemma_ for token in nlp(x) if
-    #         not token.is_stop
-    #         and not token.is_currency
-    #         and not token.is_digit
-    #         and not token.is_punct
-    #         and not token.is_space
-    #         and not token.like_num
-    #         and not token.pos_ == "PROPN"
-    #     ]
-    #     return list(set(y))
+        # check if kg available
+        if data_args.use_kg_oracle and data_args.kg_column != None:
+            kg_text = ""
+            if data_args.kg_column == "kg_vocab":
+                kg_text = " ".join(vocab)
+            # have kg sentences be a fourth passage
+            elif data_args.kg_column == "kg_sentences":
+                kg_text = ""
+                for sentence in vocab:
+                    if data_args.vocab_threshold == None or data_args.vocab_threshold <= 0 or (sentence['count'] >= data_args.vocab_threshold):
+                        kg_text += sentence['text'] + " " 
+            # put kg first
+            if data_args.p_b4_q:
+                return [f"passage: {kg_text} question: {question}"] + [f"passage: {t} question: {question}" for t in passages]
+            else:
+                return [f"question: {question} passage: {kg_text}"] + [f"question: {question} passage: {t}" for t in passages]
+        if data_args.p_b4_q:
+            return [f"passage: {t} question: {question}" for t in passages]
+        else:
+            return [f"question: {question} passage: {t}" for t in passages]
     # multiple answers for training
     if mode == "train":
         inputs = []
@@ -105,26 +134,36 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
             answer_list = answers[idx]
-            kg_vocab = vocabs[idx]
-            if len(answer_list) == 0:
-                inputs.append(append_question(passages, q, kg_vocab))
-                targets.append("")  
-                indices.append(examples["id"][idx])
+            kg_vocab = None
+            if data_args.kg_column is not None:
+                kg_vocab = vocabs[idx]
+            question_passages = append_question(passages, q, kg_vocab)
+
+            # if there no answers or no passages, then discard. Filter based on answer list, kg sentences or kg_vocab
+            if not data_args.apply_filter and len(answer_list) == 0:
+                # inputs.append(question_passages)
+                # targets.append("")  
+                # indices.append(examples["id"][idx])
+                continue
+            elif data_args.apply_filter and (len(answer_list) == 0 or (kg_vocab != None and len(kg_vocab) == 0) or (data_args.kg_column != None and data_args.vocab_threshold != None and len(kg_vocab) > 0 and 
+                ((data_args.kg_column == 'kg_sentences' and kg_vocab[0]['count'] < data_args.vocab_threshold)
+                or (data_args.kg_column == 'kg_sentences' and len(kg_vocab) < data_args.vocab_threshold)))):
+                continue
             else: # multiple answers
+                answer_list = get_top_answers(answer_list)
                 for answer_data in answer_list:
-                    a = answer_data["answer"]
-                    answer_score = answer_data["meta"]["score"]     
-                    if answer_score >= 3: # only takes answers whose score>3
-                        question_passages = append_question(passages, q, kg_vocab)
-                        inputs.append(question_passages)
-                        targets.append(a)
-                        indices.append(examples["id"][idx])
+                    inputs.append(question_passages)
+                    targets.append(answer_data)
+                    indices.append(examples["id"][idx])
                     
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
+        targets = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
-            kg_vocab = vocabs[idx]
+            kg_vocab = None
+            if data_args.kg_column is not None:
+                kg_vocab = vocabs[idx]
             question_passages = append_question(passages, q, kg_vocab)
             inputs.append(question_passages)
             indices.append(examples["id"][idx])
