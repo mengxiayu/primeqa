@@ -35,12 +35,13 @@ class MoEBART(transformers.BartForConditionalGeneration):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-    ) -> Union[Tuple, Seq2SeqLMOutput]: # set return_dict=False, as we need encoder outputs as tuple. TODO verify this
+    ) -> Union[Tuple, Seq2SeqLMOutput]: 
+
+        # NOTE reshape inputs here
         if input_ids != None:
             if input_ids.dim() == 3:
                 self.n_expert = input_ids.size(1)
             input_ids = input_ids.view(-1, input_ids.size(-1))
-        
         
         if attention_mask != None:
             attention_mask = attention_mask.view(-1, attention_mask.size(-1))
@@ -61,13 +62,9 @@ class MoEBART(transformers.BartForConditionalGeneration):
                 decoder_input_ids = shift_tokens_right(
                     labels, self.config.pad_token_id, self.config.decoder_start_token_id
                 )
+        # NOTE reshap decoder input ids here
         decoder_input_ids = decoder_input_ids.expand(self.n_expert, decoder_input_ids.size(0), decoder_input_ids.size(1)).transpose(1, 0).reshape(self.n_expert * decoder_input_ids.size(0), -1)
 
-            
-
-
-        '''reshpae input_ids here'''
-        # FIXME mengxia 10.04 
         outputs = self.model(
             input_ids,
             attention_mask=attention_mask,
@@ -90,7 +87,8 @@ class MoEBART(transformers.BartForConditionalGeneration):
         (B, N, S) -> (B*N, S) -> (B*N, S, hidden) -> (B*N, S, vocab_size) -> reshape to (B, N, S, vocab_size) -> combine N to 1, get (B, S)
         """
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias # (bsz * n_passages, seq_len, vocab_size)
-        # reshape to three dimension and then sum
+        
+        # reshape to 3 dimension and then sum
         lm_logits = lm_logits.view(-1, self.n_expert, lm_logits.size(-2), lm_logits.size(-1)) # (bsz, n_passages, seq_len, vocab_size)
 
         lm_logits = torch.sum(lm_logits, dim=1) # equally combine each expert
