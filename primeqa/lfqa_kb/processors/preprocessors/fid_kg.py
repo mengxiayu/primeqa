@@ -138,7 +138,6 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             if data_args.kg_column is not None:
                 kg_vocab = vocabs[idx]
             question_passages = append_question(passages, q, kg_vocab)
-
             # if there no answers or no passages, then discard. Filter based on answer list, kg sentences or kg_vocab
             if not data_args.apply_filter and len(answer_list) == 0:
                 # inputs.append(question_passages)
