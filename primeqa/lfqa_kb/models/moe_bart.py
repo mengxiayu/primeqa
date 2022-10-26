@@ -15,6 +15,8 @@ class MoEBART(transformers.BartForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.n_expert = None
+        self.knowledge_selection = KnowledgeSelection(config.d_model)
+
  
 
     def forward(
@@ -62,7 +64,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
                 decoder_input_ids = shift_tokens_right(
                     labels, self.config.pad_token_id, self.config.decoder_start_token_id
                 )
-        # NOTE reshap decoder input ids here
+        # NOTE reshape decoder input ids here
         decoder_input_ids = decoder_input_ids.expand(self.n_expert, decoder_input_ids.size(0), decoder_input_ids.size(1)).transpose(1, 0).reshape(self.n_expert * decoder_input_ids.size(0), -1)
 
         outputs = self.model(
@@ -88,9 +90,19 @@ class MoEBART(transformers.BartForConditionalGeneration):
         """
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias # (bsz * n_passages, seq_len, vocab_size)
         
-        # reshape to 3 dimension and then sum
-        lm_logits = lm_logits.view(-1, self.n_expert, lm_logits.size(-2), lm_logits.size(-1)) # (bsz, n_passages, seq_len, vocab_size)
+        # Option 1: knowledge selection
+        if not return_dict:
+            decoder_hidden, encoder_hidden = outputs
+        else:
+            decoder_hidden = outputs.last_hidden_state
+            encoder_hidden = outputs.encoder_last_hidden_state
+        # decoder_hidden = decoder_hidden.view(-1, self.n_expert, decoder_hidden.size(-2), decoder_hidden.size(-1))
+        # encoder_hidden = encoder_hidden.view(-1, self.n_expert, encoder_hidden.size(-2), encoder_hidden.size(-1))
 
+        lm_logits = self.knowledge_selection(lm_logits, encoder_hidden, decoder_hidden, self.n_expert)
+        
+        # Option 2: reshape to 4 dimension and then sum
+        lm_logits = lm_logits.view(-1, self.n_expert, lm_logits.size(-2), lm_logits.size(-1)) # (bsz, n_passages, seq_len, vocab_size)
         lm_logits = torch.sum(lm_logits, dim=1) # equally combine each expert
         
         masked_lm_loss = None
@@ -166,3 +178,28 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
     return shifted_input_ids
 
 
+
+class KnowledgeSelection(torch.nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.hc_proj = nn.Linear(embed_dim, 1)
+        self.hd_proj = nn.Linear(embed_dim, 1)
+    
+    def forward(self, lm_logits, encoder_hidden, decoder_hidden, n_expert):
+        '''
+        A = softmax(hdec hTenc)
+        hc = Ahenc
+        pgen = sigmod(Wc hc + Wg hdec )
+        '''
+        A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
+        A = nn.functional.softmax(A, dim=-1)
+        Hc = torch.bmm(A, encoder_hidden) # encoder_hidden = (B, Le, N); Hc = (B, Ld, N)
+        p = self.hc_proj(Hc) + self.hd_proj(decoder_hidden)
+        
+        p = p.view(-1, n_expert, p.size(-2), p.size(-1))
+        p = nn.functional.softmax(p, dim=1)
+        p = p.view(-1, p.size(-2), p.size(-1))
+        print(p)
+        output_logits = lm_logits * p
+
+        return output_logits
