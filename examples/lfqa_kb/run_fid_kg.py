@@ -128,6 +128,9 @@ class DataTrainingArguments:
     p_b4_q:  bool = field(
         default=False, metadata={"help": "Put the passages before the question (default is question before passages)"}
     )
+    q_only:  bool = field(
+        default=False, metadata={"help": "Only keep the question without any passages."}
+    )
     train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
     validation_file: Optional[str] = field(
         default=None,

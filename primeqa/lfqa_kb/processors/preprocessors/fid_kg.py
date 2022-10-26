@@ -107,6 +107,9 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                 break
         return top_answers
     def append_question(passages, question, vocab):
+        return_data = []
+        if data_args.q_only:
+            return_data.append("question: " + question)
         # check if kg available
         if data_args.use_kg_oracle and data_args.kg_column != None:
             kg_text = ""
@@ -120,13 +123,14 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                         kg_text += sentence['text'] + " " 
             # put kg first
             if data_args.p_b4_q:
-                return [f"passage: {kg_text} question: {question}"] + [f"passage: {t} question: {question}" for t in passages]
+                return_data.append(f"passage: {kg_text} question: {question}")
             else:
-                return [f"question: {question} passage: {kg_text}"] + [f"question: {question} passage: {t}" for t in passages]
+                return_data.append(f"question: {question} passage: {kg_text}")
         if data_args.p_b4_q:
-            return [f"passage: {t} question: {question}" for t in passages]
+            return_data.extend([f"passage: {t} question: {question}" for t in passages])
         else:
-            return [f"question: {question} passage: {t}" for t in passages]
+            return_data.extend([f"question: {question} passage: {t}" for t in passages])
+        return return_data
     # multiple answers for training
     if mode == "train":
         inputs = []
