@@ -27,6 +27,7 @@ from transformers.trainer_utils import PredictionOutput
 from transformers.deepspeed import is_deepspeed_zero3_enabled
 import os
 import json
+from collections import Counter
 
 # for prediction_setp
 import torch
@@ -44,6 +45,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
         self.eval_examples = eval_examples
         self.post_process_function = post_process_function
         self.data_args = data_args
+        if self.data_args.is_debug:
+            self.expert_counter = Counter()
 
     def evaluate(
         self,
@@ -58,7 +61,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
         self._num_beams = num_beams if num_beams is not None else self.args.generation_num_beams
         self._top_k = self.args.generation_top_k
         self._top_p = self.args.generation_top_p
-        
+        if self.data_args.is_debug:
+            self.expert_counter = Counter()
         print("in evaluate()", self._max_length, self._num_beams, self._top_k, self._top_p)
         eval_dataset = self.eval_dataset if eval_dataset is None else eval_dataset
         eval_dataloader = self.get_eval_dataloader(eval_dataset)
@@ -100,6 +104,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
             xm.master_print(met.metrics_report())
 
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, metrics)
+        if self.data_args.is_debug:
+            print( "expert counter", self.expert_counter)
         return metrics
 
 
@@ -127,7 +133,7 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
 
         predictions = self.post_process_function(predict_examples, predict_dataset, output.predictions, "predict")
         metrics = self.compute_metrics(predictions)
-
+        
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(metrics.keys()):
             if not key.startswith(f"{metric_key_prefix}_"):
@@ -164,6 +170,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
             )
         has_labels = "labels" in inputs
         inputs = self._prepare_inputs(inputs)
+        # if self.data_args.is_debug:
+        #     print(inputs["labels"])
 
         # XXX: adapt synced_gpus for fairscale as well
         # Added generation kwargs ["num_beams", "top_k", "top_p"] here for multiple decoding strategy choices.
@@ -185,14 +193,32 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
         # some encoder-decoder models can have varying encder's and thus
         # varying model input names
         if hasattr(self.model, "encoder") and self.model.encoder.main_input_name != self.model.main_input_name:
+
             generation_inputs = inputs[self.model.encoder.main_input_name]
         else:
+            # if self.data_args.is_debug:
+            #     print(self.model.main_input_name)
             generation_inputs = inputs[self.model.main_input_name]
 
-        generated_tokens = self.model.generate(
-            generation_inputs,
-            **gen_kwargs,
-        )
+        if self.data_args.is_debug:
+            generated_tokens, expert_selections, uncombined_sequences  = self.model.generate(
+                generation_inputs,
+                **gen_kwargs,
+            )
+        else:
+            generated_tokens  = self.model.generate(
+                generation_inputs,
+                **gen_kwargs,
+            )
+        if self.data_args.is_debug:
+            # print(type(generated_tokens))
+            # print("generated",generated_tokens.shape)
+            # print("labels", inputs["labels"].shape)
+            # print("expert", expert_selections.shape)
+            # print("uncombined_sequence", uncombined_sequences.shape)
+            cnt = Counter(expert_selections.tolist())
+            # print(cnt)
+            self.expert_counter.update(cnt)
         # in case the batch is shorter than max length, the output should be padded
         if generated_tokens.shape[-1] < gen_kwargs["max_length"]:
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_kwargs["max_length"])

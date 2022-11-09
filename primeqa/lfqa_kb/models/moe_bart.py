@@ -8,16 +8,32 @@ import random
 import json
 import numpy as np
 import transformers
-from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput, ModelOutput
+from transformers.modeling_outputs import BaseModelOutput, ModelOutput
 from typing import List, Optional, Tuple, Union, Dict, Any
+from dataclasses import dataclass
+from transformers.generation_logits_process import LogitsProcessorList
+from transformers.generation_stopping_criteria import StoppingCriteriaList
+ 
+@dataclass
+class Seq2SeqLMOutput(ModelOutput):
+
+    loss: Optional[torch.FloatTensor] = None
+    logits: torch.FloatTensor = None
+    past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
+    decoder_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    decoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
+    cross_attentions: Optional[Tuple[torch.FloatTensor]] = None
+    encoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    encoder_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
+    encoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
+    expert_weight: Optional[Tuple[torch.FloatTensor]] = None
+    uncombined_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 class MoEBART(transformers.BartForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.n_expert = None
         self.knowledge_selection = KnowledgeSelection(config.d_model)
-
- 
 
     def forward(
         self,
@@ -37,6 +53,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
+        is_debug: Optional[bool] = None,
     ) -> Union[Tuple, Seq2SeqLMOutput]: 
 
         # NOTE reshape inputs here
@@ -66,7 +83,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
                 )
         # NOTE reshape decoder input ids here
         decoder_input_ids = decoder_input_ids.expand(self.n_expert, decoder_input_ids.size(0), decoder_input_ids.size(1)).transpose(1, 0).reshape(self.n_expert * decoder_input_ids.size(0), -1)
-
+        # print("labels", labels.shape)
         outputs = self.model(
             input_ids,
             attention_mask=attention_mask,
@@ -88,7 +105,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
         """
         (B, N, S) -> (B*N, S) -> (B*N, S, hidden) -> (B*N, S, vocab_size) -> reshape to (B, N, S, vocab_size) -> combine N to 1, get (B, S)
         """
-        lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias # (bsz * n_passages, seq_len, vocab_size)
+        uncombined_logits = self.lm_head(outputs[0]) + self.final_logits_bias # (bsz * n_passages, seq_len, vocab_size)
         
         # Option 1: knowledge selection
         if not return_dict:
@@ -99,7 +116,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
         # decoder_hidden = decoder_hidden.view(-1, self.n_expert, decoder_hidden.size(-2), decoder_hidden.size(-1))
         # encoder_hidden = encoder_hidden.view(-1, self.n_expert, encoder_hidden.size(-2), encoder_hidden.size(-1))
 
-        lm_logits = self.knowledge_selection(lm_logits, encoder_hidden, decoder_hidden, self.n_expert)
+        lm_logits, expert_weight = self.knowledge_selection(uncombined_logits, encoder_hidden, decoder_hidden, self.n_expert)
         
         # Option 2: reshape to 4 dimension and then sum
         lm_logits = lm_logits.view(-1, self.n_expert, lm_logits.size(-2), lm_logits.size(-1)) # (bsz, n_passages, seq_len, vocab_size)
@@ -114,17 +131,32 @@ class MoEBART(transformers.BartForConditionalGeneration):
             output = (lm_logits,) + outputs[1:]
             return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
 
-        return Seq2SeqLMOutput(
-            loss=masked_lm_loss,
-            logits=lm_logits,
-            past_key_values=outputs.past_key_values,
-            decoder_hidden_states=outputs.decoder_hidden_states,
-            decoder_attentions=outputs.decoder_attentions,
-            cross_attentions=outputs.cross_attentions,
-            encoder_last_hidden_state=outputs.encoder_last_hidden_state,
-            encoder_hidden_states=outputs.encoder_hidden_states,
-            encoder_attentions=outputs.encoder_attentions,
-        )
+        if is_debug:
+            return Seq2SeqLMOutput(
+                loss=masked_lm_loss,
+                logits=lm_logits,
+                past_key_values=outputs.past_key_values,
+                decoder_hidden_states=outputs.decoder_hidden_states,
+                decoder_attentions=outputs.decoder_attentions,
+                cross_attentions=outputs.cross_attentions,
+                encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+                encoder_hidden_states=outputs.encoder_hidden_states,
+                encoder_attentions=outputs.encoder_attentions,
+                expert_weight=expert_weight, # for debug purpose
+                uncombined_logits=uncombined_logits # for debug purpose
+            )
+        else:
+            return Seq2SeqLMOutput(
+                loss=masked_lm_loss,
+                logits=lm_logits,
+                past_key_values=outputs.past_key_values,
+                decoder_hidden_states=outputs.decoder_hidden_states,
+                decoder_attentions=outputs.decoder_attentions,
+                cross_attentions=outputs.cross_attentions,
+                encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+                encoder_hidden_states=outputs.encoder_hidden_states,
+                encoder_attentions=outputs.encoder_attentions,
+            )
     
     def generate(self, input_ids, **gen_kwargs):
         self.n_expert = input_ids.size(1)
@@ -132,8 +164,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
             input_ids,
             **gen_kwargs
         )
-    def new_func(self):
-        print("yes")
+
     
 
     def _prepare_encoder_decoder_kwargs_for_generation(
@@ -160,7 +191,177 @@ class MoEBART(transformers.BartForConditionalGeneration):
 
         return model_kwargs
 
-        
+    # for debug purpose
+    # def greedy_search(
+    #     self,
+    #     input_ids: torch.LongTensor,
+    #     logits_processor: Optional[LogitsProcessorList] = None,
+    #     stopping_criteria: Optional[StoppingCriteriaList] = None,
+    #     max_length: Optional[int] = None,
+    #     pad_token_id: Optional[int] = None,
+    #     eos_token_id: Optional[int] = None,
+    #     output_attentions: Optional[bool] = None,
+    #     output_hidden_states: Optional[bool] = None,
+    #     output_scores: Optional[bool] = None,
+    #     return_dict_in_generate: Optional[bool] = None,
+    #     synced_gpus: Optional[bool] = False,
+    #     **model_kwargs,
+    # ) : # Not define output
+    #     # init values
+    #     logits_processor = logits_processor if logits_processor is not None else LogitsProcessorList()
+    #     stopping_criteria = stopping_criteria if stopping_criteria is not None else StoppingCriteriaList()
+    #     if max_length is not None:
+    #         warnings.warn(
+    #             "`max_length` is deprecated in this function, use"
+    #             " `stopping_criteria=StoppingCriteriaList([MaxLengthCriteria(max_length=max_length)])` instead.",
+    #             UserWarning,
+    #         )
+    #         stopping_criteria = validate_stopping_criteria(stopping_criteria, max_length)
+    #     pad_token_id = pad_token_id if pad_token_id is not None else self.config.pad_token_id
+    #     eos_token_id = eos_token_id if eos_token_id is not None else self.config.eos_token_id
+    #     output_scores = output_scores if output_scores is not None else self.config.output_scores
+    #     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+    #     output_hidden_states = (
+    #         output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+    #     )
+    #     return_dict_in_generate = (
+    #         return_dict_in_generate if return_dict_in_generate is not None else self.config.return_dict_in_generate
+    #     )
+
+    #     # init attention / hidden states / scores tuples
+    #     scores = () if (return_dict_in_generate and output_scores) else None
+    #     decoder_attentions = () if (return_dict_in_generate and output_attentions) else None
+    #     cross_attentions = () if (return_dict_in_generate and output_attentions) else None
+    #     decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
+
+    #     # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
+    #     if return_dict_in_generate and self.config.is_encoder_decoder:
+    #         encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
+    #         encoder_hidden_states = (
+    #             model_kwargs["encoder_outputs"].get("hidden_states") if output_hidden_states else None
+    #         )
+
+    #     # keep track of which sequences are already finished
+    #     unfinished_sequences = input_ids.new(input_ids.shape[0]).fill_(1)
+    #     cur_len = input_ids.shape[-1]
+    #     uncombined_sequences = []
+    #     expert_selections = []
+    #     # print("expert_selection", expert_selections.shape)
+    #     this_peer_finished = False  # used by synced_gpus only
+    #     while True:
+
+    #         if synced_gpus:
+    #             # Under synced_gpus the `forward` call must continue until all gpus complete their sequence.
+    #             # The following logic allows an early break if all peers finished generating their sequence
+    #             this_peer_finished_flag = torch.tensor(0.0 if this_peer_finished else 1.0).to(input_ids.device)
+    #             # send 0.0 if we finished, 1.0 otherwise
+    #             dist.all_reduce(this_peer_finished_flag, op=dist.ReduceOp.SUM)
+    #             # did all peers finish? the reduced sum will be 0.0 then
+    #             if this_peer_finished_flag.item() == 0.0:
+    #                 break
+
+    #         # prepare model inputs
+    #         model_inputs = self.prepare_inputs_for_generation(input_ids, **model_kwargs)
+
+    #         # forward pass to get next token
+    #         outputs = self(
+    #             **model_inputs,
+    #             return_dict=True,
+    #             output_attentions=output_attentions,
+    #             output_hidden_states=output_hidden_states,
+    #         )
+    #         if synced_gpus and this_peer_finished:
+    #             cur_len = cur_len + 1
+    #             continue  # don't waste resources running the code we don't need
+
+    #         next_token_logits = outputs.logits[:, -1, :]
+    #         next_token_expert_weights = outputs.expert_weight
+    #         next_token_uncombined_logits = outputs.uncombined_logits[:, -1, :]
+            
+    #         # print("logits", next_token_logits.shape)
+    #         # print("uncombined logits", next_token_uncombined_logits.shape)
+
+    #         # pre-process distribution
+    #         next_tokens_scores = logits_processor(input_ids, next_token_logits)
+
+    #         # Store scores, attentions and hidden_states when required
+    #         if return_dict_in_generate:
+    #             if output_scores:
+    #                 scores += (next_tokens_scores,)
+    #             if output_attentions:
+    #                 decoder_attentions += (
+    #                     (outputs.decoder_attentions,) if self.config.is_encoder_decoder else (outputs.attentions,)
+    #                 )
+    #                 if self.config.is_encoder_decoder:
+    #                     cross_attentions += (outputs.cross_attentions,)
+
+    #             if output_hidden_states:
+    #                 decoder_hidden_states += (
+    #                     (outputs.decoder_hidden_states,)
+    #                     if self.config.is_encoder_decoder
+    #                     else (outputs.hidden_states,)
+    #                 )
+
+    #         # argmax
+    #         next_tokens = torch.argmax(next_tokens_scores, dim=-1)
+    #         next_tokens_uncombined = torch.argmax(next_token_uncombined_logits, dim=-1)
+    #         next_tokens_expert = torch.argmax(next_token_expert_weights)
+    #         # print("next_tokens", next_tokens)
+    #         # print("next_tokens_uncombined", next_tokens_uncombined)
+    #         # print("next_tokens_expert", next_tokens_expert )
+    #         # finished sentences should have their next token be a padding token
+    #         if eos_token_id is not None:
+    #             if pad_token_id is None:
+    #                 raise ValueError("If `eos_token_id` is defined, make sure that `pad_token_id` is defined.")
+    #             next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+    #             next_tokens_uncombined = next_tokens_uncombined[:, None] * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
+               
+    #         # update generated ids, model inputs, and length for next step
+    #         input_ids = torch.cat([input_ids, next_tokens[:, None]], dim=-1)
+    #         uncombined_sequences.append(next_tokens_uncombined)
+    #         expert_selections.append(next_tokens_expert)
+    #         model_kwargs = self._update_model_kwargs_for_generation(
+    #             outputs, model_kwargs, is_encoder_decoder=self.config.is_encoder_decoder
+    #         )
+    #         cur_len = cur_len + 1
+
+    #         # if eos_token was found in one sentence, set sentence to finished
+    #         if eos_token_id is not None:
+    #             unfinished_sequences = unfinished_sequences.mul((next_tokens != eos_token_id).long())
+
+    #         # stop when each sentence is finished, or if we exceed the maximum length
+    #         if unfinished_sequences.max() == 0 or stopping_criteria(input_ids, scores):
+    #             if not synced_gpus:
+    #                 break
+    #             else:
+    #                 this_peer_finished = True
+
+    #     # if return_dict_in_generate:
+    #     #     if self.config.is_encoder_decoder:
+    #     #         return GreedySearchEncoderDecoderOutput(
+    #     #             sequences=input_ids,
+    #     #             scores=scores,
+    #     #             encoder_attentions=encoder_attentions,
+    #     #             encoder_hidden_states=encoder_hidden_states,
+    #     #             decoder_attentions=decoder_attentions,
+    #     #             cross_attentions=cross_attentions,
+    #     #             decoder_hidden_states=decoder_hidden_states,
+    #     #         )
+    #     #     else:
+    #     #         return GreedySearchDecoderOnlyOutput(
+    #     #             sequences=input_ids,
+    #     #             scores=scores,
+    #     #             attentions=decoder_attentions,
+    #     #             hidden_states=decoder_hidden_states,
+    #     #         )
+    #     # else:
+    #     expert_selections = torch.stack(expert_selections)
+    #     uncombined_sequences = torch.stack(uncombined_sequences)
+    #     uncombined_sequences = uncombined_sequences.reshape(uncombined_sequences.shape[1], uncombined_sequences.shape[0], -1)
+    #     # print("the whole sequence", input_ids, expert_selections, uncombined_sequences)
+    #     return input_ids, expert_selections, uncombined_sequences 
+
+
     
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
@@ -187,9 +388,7 @@ class KnowledgeSelection(torch.nn.Module):
     
     def forward(self, lm_logits, encoder_hidden, decoder_hidden, n_expert):
         '''
-        A = softmax(hdec hTenc)
-        hc = Ahenc
-        pgen = sigmod(Wc hc + Wg hdec )
+        p.size() = (B x N_expert, L)
         '''
         A = torch.bmm(decoder_hidden, encoder_hidden.transpose(1,2)) # (B, Ld, Le)
         A = nn.functional.softmax(A, dim=-1)
@@ -199,7 +398,10 @@ class KnowledgeSelection(torch.nn.Module):
         p = p.view(-1, n_expert, p.size(-2), p.size(-1))
         p = nn.functional.softmax(p, dim=1)
         p = p.view(-1, p.size(-2), p.size(-1))
-        print(p)
-        output_logits = lm_logits * p
+        # print("Expert weight", p)
 
-        return output_logits
+        output_logits = lm_logits * p
+        
+
+        return output_logits, p
+
