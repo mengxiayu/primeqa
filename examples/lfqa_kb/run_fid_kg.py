@@ -242,7 +242,10 @@ class DataTrainingArguments:
             )
         },
     )
-
+    is_debug: bool = field(
+        default=False, metadata={"help": "Debug mode."}
+    )
+    
     def __post_init__(self):
         if (
             self.dataset_name is None
