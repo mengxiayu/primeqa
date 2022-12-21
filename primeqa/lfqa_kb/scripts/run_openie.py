@@ -12,13 +12,19 @@ from spacy.tokens import Token
 from tqdm import tqdm
 import json
 from stanza.server import CoreNLPClient
+import multiprocessing
+from multiprocessing import Process
+import datetime
 
-nlp = spacy.load("en_core_web_sm")
-nlp_coref = spacy.load("en_coreference_web_trf")
-nlp.add_pipe("transformer", source=nlp_coref)
-nlp.add_pipe("coref", source=nlp_coref)
-nlp.add_pipe("span_resolver", source=nlp_coref)
-nlp.add_pipe("span_cleaner", source=nlp_coref)
+use_coref = False
+
+if use_coref:
+    nlp = spacy.load("en_core_web_sm")
+    nlp_coref = spacy.load("en_coreference_web_trf")
+    nlp.add_pipe("transformer", source=nlp_coref)
+    nlp.add_pipe("coref", source=nlp_coref)
+    nlp.add_pipe("span_resolver", source=nlp_coref)
+    nlp.add_pipe("span_cleaner", source=nlp_coref)
 
 properties = {
     'openie.max_entailments_per_clause': 500,
@@ -98,12 +104,10 @@ def convert2kg(texts: List[str], client: Any):
     # return str_list
 
     triples = []
-    passage_i = 0
 
-    for text in nlp.pipe(texts):
-        resolved_text = resolve_references(text) #._.coref_resolved
-        doc = client.annotate(resolved_text)
-        # print(resolved_text)
+    for pid in texts: #nlp.pipe(texts):
+        #resolved_text = resolve_references(text) #._.coref_resolved
+        doc = client.annotate(texts[pid])
         sent_i = 0
         for sent in doc.sentence:
             triples_sent = {}
@@ -134,6 +138,7 @@ def convert2kg(texts: List[str], client: Any):
                 triples_sent[triple.subject.lower()][triple.object.lower()].append(triple.relation.lower())
             
             # If there are two S,R that all O are the same and the S words overlap, only keep the longer S
+            # print(str(datetime.datetime.now()) + " filter triples")
             remove = set()
             i = 0
             for triple_i in triples_sent:
@@ -174,22 +179,11 @@ def convert2kg(texts: List[str], client: Any):
             for subject_i in triples_sent:
                 for object_i in triples_sent[subject_i]:
                     for relation_i in triples_sent[subject_i][object_i]:
-                        new_str = f"{subject_i}\t{relation_i}\t{object_i}\{passage_i}-{sent_i}"
+                        new_str = f"{subject_i}\t{relation_i}\t{object_i}\t{pid}-{sent_i}"
                     triples.append(new_str)
             sent_i += 1
-        passage_i += 1
-                            
+        #print(str(datetime.datetime.now()) + " passage processed")                    
     return triples
-
-
-
-# def return_entities(sent: str):
-#     return [
-#         token.lemma_.lower() for token in nlp(sent)
-#         if token.pos_ in ['PROPN', 'NOUN'] and not token.is_stop
-#     ]
-
-
 
 def load_eli5_dpr(dataset_fn, n_docs):
     import json
@@ -200,7 +194,7 @@ def load_eli5_dpr(dataset_fn, n_docs):
             data = json.loads(line.strip())
             ex["id"] = data["id"]
             ex["input"] = data["input"]
-            ex["passages"] = []
+            ex["passages"] = {}
             seen_pids = dict()
             for i in range(min(n_docs,len(data["passages"]))):
                 passage = data["passages"][i]["text"]
@@ -217,10 +211,10 @@ def load_eli5_dpr(dataset_fn, n_docs):
                 # if overlapping paragraphs only take the first (highest score)
                 if pid in seen_pids:
                     overlap = False
-                    for i in range(len(seen_pids[pid]['start'])):
-                        if (start >= seen_pids[pid]['start'][i] and start <= seen_pids[pid]['end'][i]) or \
-                            (end >= seen_pids[pid]['start'][i] and end <= seen_pids[pid]['end'][i]) or \
-                                (start <= seen_pids[pid]['start'][i] and end >= seen_pids[pid]['end'][i]):
+                    for j in range(len(seen_pids[pid]['start'])):
+                        if (start >= seen_pids[pid]['start'][j] and start <= seen_pids[pid]['end'][j]) or \
+                            (end >= seen_pids[pid]['start'][j] and end <= seen_pids[pid]['end'][j]) or \
+                                (start <= seen_pids[pid]['start'][j] and end >= seen_pids[pid]['end'][j]):
                                 overlap = True
                     if not overlap:
                         seen_pids[pid]['start'].append(start)
@@ -235,9 +229,9 @@ def load_eli5_dpr(dataset_fn, n_docs):
                 
                 # add period after title so it doesn't confuse openIE
                 if start == 0:
-                    ex["passages"].append(data["passages"][i]["title"] + "." + passage[len(data["passages"][i]["title"]):])
+                    ex["passages"][data["passages"][i]['pid']] = data["passages"][i]["title"] + "." + passage[len(data["passages"][i]["title"]):]
                 else:
-                    ex["passages"].append(passage)
+                    ex["passages"][data["passages"][i]['pid']] = passage
             # ex["passages"] =  [x["text"] for x in data["passages"]][:n_docs]
             examples.append(ex)
     return examples
@@ -272,17 +266,19 @@ def load_asqa_content(dataset_fn):
 
 os.environ['CORENLP_HOME'] = '/dccstor/myu/.stanfordnlp_resources/stanford-corenlp-4.4.0'
 
-def create_external_graph(task_path, examples, start=None, end=None):
-    print("start and end", start, end)
+def create_external_graph(task_path, examples, start=None, end=None, port=9000):
+    print(str(datetime.datetime.now()) + "start and end: ", start, end)
+    #print(datetime.datetime.now())
 
     if start is not None and end is not None:
         examples = examples[start:end]
     fw = open(task_path, 'w')
     with CoreNLPClient(annotators=['openie'], # tokenize','ssplit','pos','lemma','ner', 'parse', 'depparse','coref',
-                   memory='16G', be_quiet=True, properties=properties) as client:
+                   memory='16G', be_quiet=True, properties=properties, endpoint="http://localhost:" + str(port)) as client:
+        print(str(datetime.datetime.now()) + " started corenlp")
         for ex in tqdm(examples, total=len(examples)):
-            
             kg_docs_text = ex["passages"] # a list of strings
+            #proc = Process(target=convert2kg, args=(kg_docs_text, client))
             str_list = convert2kg(kg_docs_text, client)
             new_line = {
                 "id": ex["id"],
@@ -300,6 +296,7 @@ if __name__ == '__main__':
 
     dataset_fn = args[1]
     output_path = args[2]
+    port = args[3]
     # start = int(args[1])
     # end = int(args[2])
 
@@ -307,8 +304,8 @@ if __name__ == '__main__':
 
     examples = load_eli5_dpr(
         dataset_fn,
-        n_docs=20
+        n_docs=100
     )   
     
     # assert os.path.isdir(output_path)
-    create_external_graph(output_path, examples) #, int(start), int(end))
+    create_external_graph(output_path, examples, port=port) #, int(start), int(end))

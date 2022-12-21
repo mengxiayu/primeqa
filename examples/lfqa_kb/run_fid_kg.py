@@ -256,14 +256,14 @@ class DataTrainingArguments:
             raise ValueError("Need either a dataset name or a training/validation file/test_file.")
         else:
             if self.train_file is not None:
-                extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`train_file` should be a csv or a json file."
+                extension = self.train_file[self.train_file.index(".")+1:]
+                assert extension in ["csv", "json","json.gz"], "`train_file` should be a csv or a json file."
             if self.validation_file is not None:
-                extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
+                extension = self.validation_file[self.validation_file.index(".")+1:]
+                assert extension in ["csv", "json","json.gz"], "`validation_file` should be a csv or a json file."
             if self.test_file is not None:
-                extension = self.test_file.split(".")[-1]
-                assert extension in ["csv", "json"], "`test_file` should be a csv or a json file."
+                extension = self.test_file[self.test_file.index(".")+1:]
+                assert extension in ["csv", "json","json.gz"], "`test_file` should be a csv or a json file."
         if self.val_max_answer_length is None:
             self.val_max_answer_length = self.max_answer_length
 
@@ -384,13 +384,16 @@ def main():
     else:
         raw_datasets = {}
         if data_args.train_file is not None:
-            extension = data_args.train_file.split(".")[-1]
+            extension = data_args.train_file[data_args.train_file.index(".")+1:]
+            if extension == "json.gz": extension = "json"
             raw_datasets["train"] = load_dataset(extension, data_files={"train": data_args.train_file}, split="train")
         if data_args.validation_file is not None:
-            extension = data_args.validation_file.split(".")[-1]
+            extension = data_args.validation_file[data_args.validation_file.index(".")+1:]
+            if extension == "json.gz": extension = "json"
             raw_datasets["validation"] = load_dataset(extension, data_files={"validation": data_args.validation_file}, split="validation")
         if data_args.test_file is not None:
-            extension = data_args.test_file.split(".")[-1]
+            extension = data_args.test_file[data_args.test_file.index(".")+1:]
+            if extension == "json.gz": extension = "json"
             raw_datasets["test"] = load_dataset(extension, data_files={"test": data_args.test_file}, split="validation")
         
             # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at

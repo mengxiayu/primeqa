@@ -83,6 +83,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     def top_passages(ctx):
         assert n_doc <= len(ctx) 
         return [ctx[i]["text"] for i in range(n_doc)]
+
     def get_top_answers(answers):
         # sort answers by recall then take top n
         answers_with_recall = {}
@@ -106,6 +107,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             if data_args.keep_top_n_answer is not None and count >= data_args.keep_top_n_answer:
                 break
         return top_answers
+
     def append_question(passages, question, vocab):
         return_data = []
         if data_args.q_only:
@@ -116,11 +118,16 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             if data_args.kg_column == "kg_vocab":
                 kg_text = " ".join(vocab)
             # have kg sentences be a fourth passage
-            elif data_args.kg_column == "kg_sentences":
+            elif data_args.kg_column == "kg_sentences" or data_args.kg_column == "kg_triples":
+                text_field = "text"
+                delim = ". "
+                if data_args.kg_column == "kg_sentences":
+                    text_field = "sentence"
+                    delim = " "
                 kg_text = ""
                 for sentence in vocab:
                     if data_args.vocab_threshold == None or data_args.vocab_threshold <= 0 or (sentence['count'] >= data_args.vocab_threshold):
-                        kg_text += sentence['text'] + " " 
+                        kg_text += sentence[text_field] + delim
             # put kg first
             if data_args.p_b4_q:
                 return_data.append(f"passage: {kg_text} question: {question}")
@@ -137,23 +144,21 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         targets = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
-            answer_list = answers[idx]
+            answer_list = get_top_answers(answers[idx])
             kg_vocab = None
             if data_args.kg_column is not None:
                 kg_vocab = vocabs[idx]
-            question_passages = append_question(passages, q, kg_vocab)
+            
             # if there no answers or no passages, then discard. Filter based on answer list, kg sentences or kg_vocab
-            if not data_args.apply_filter and len(answer_list) == 0:
-                # inputs.append(question_passages)
-                # targets.append("")  
-                # indices.append(examples["id"][idx])
+            if len(answer_list) == 0 or data_args.kg_column is not None and len(kg_vocab) == 0:
                 continue
-            elif data_args.apply_filter and (len(answer_list) == 0 or (kg_vocab != None and len(kg_vocab) == 0) or (data_args.kg_column != None and data_args.vocab_threshold != None and len(kg_vocab) > 0 and 
-                ((data_args.kg_column == 'kg_sentences' and kg_vocab[0]['count'] < data_args.vocab_threshold)
-                or (data_args.kg_column == 'kg_sentences' and len(kg_vocab) < data_args.vocab_threshold)))):
-                continue
+            # elif data_args.apply_filter and (len(answer_list) == 0 or kg_vocab == None or (kg_vocab != None and len(kg_vocab) == 0) or (data_args.kg_column != None and data_args.vocab_threshold != None and len(kg_vocab) > 0 and 
+            #     ((data_args.kg_column == 'kg_sentences' and kg_vocab[0]['count'] < data_args.vocab_threshold)
+            #     or (data_args.kg_column == 'kg_sentences' and len(kg_vocab) < data_args.vocab_threshold)))):
+            #     continue
             else: # multiple answers
-                answer_list = get_top_answers(answer_list)
+                question_passages = append_question(passages, q, kg_vocab)
+                
                 for answer_data in answer_list:
                     inputs.append(question_passages)
                     targets.append(answer_data)
