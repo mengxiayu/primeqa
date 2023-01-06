@@ -84,19 +84,34 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         assert n_doc <= len(ctx) 
         return [ctx[i]["text"] for i in range(n_doc)]
 
+    def get_best_answer(answers, filter="rouge"):
+        best_answer = None
+        best_score = 0
+
+        for answer in answers:
+            if filter == "rouge":
+                if answer['meta']['rouge'] > best_score:
+                    best_score = answer['meta']['rouge']
+                    best_answer = answer
+            elif filter == "size_kg":
+                if len(answer['kg_vocab']) > best_score:
+                    best_score = len(answer['kg_vocab'])
+                    best_answer = answer
+        return best_answer
+
     def get_top_answers(answers):
         # sort answers by recall then take top n
         answers_with_recall = {}
         top_answers = []
         for answer in answers:
-            if mode == 'train' and answer['meta']['score'] < 3:
+            if (mode == 'train' and answer['meta']['score'] < 3) or answer['meta']['score'] == 0:
                 continue
             # if answer['meta'] is None or 'recall' not in answer['meta'] or answer['meta']['recall'] == None:
             #      continue
             if data_args.keep_top_n_answer is not None:
-                answers_with_recall[answer['answer']] = answer['meta']['recall']
+                answers_with_recall[answer] = answer['meta']['rouge']
             else:
-                top_answers.append(answer['answer'])
+                top_answers.append(answer)
         if data_args.keep_top_n_answer is None:
             return top_answers
         answers_with_recall = dict(sorted(answers_with_recall.items(), key=lambda item: item[1], reverse=True))
@@ -115,10 +130,11 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         # check if kg available
         if data_args.use_kg_oracle and data_args.kg_column != None:
             kg_text = ""
-            if data_args.kg_column == "kg_vocab":
+
+            if len(vocab) != 0 and data_args.kg_column == "kg_vocab":
                 kg_text = " ".join(vocab)
             # have kg sentences be a fourth passage
-            elif data_args.kg_column == "kg_sentences" or data_args.kg_column == "kg_triples":
+            elif len(vocab) != 0 and data_args.kg_column == "kg_sentences" or data_args.kg_column == "kg_triples":
                 text_field = "text"
                 delim = ". "
                 if data_args.kg_column == "kg_sentences":
@@ -129,7 +145,9 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                     if data_args.vocab_threshold == None or data_args.vocab_threshold <= 0 or (sentence['count'] >= data_args.vocab_threshold):
                         kg_text += sentence[text_field] + delim
             # put kg first
-            if data_args.p_b4_q:
+            if kg_text == "":
+                return_data.append("")
+            elif data_args.p_b4_q:
                 return_data.append(f"passage: {kg_text} question: {question}")
             else:
                 return_data.append(f"question: {question} passage: {kg_text}")
@@ -144,25 +162,58 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         targets = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
-            answer_list = get_top_answers(answers[idx])
             kg_vocab = None
-            if data_args.kg_column is not None:
-                kg_vocab = vocabs[idx]
-            
-            # if there no answers or no passages, then discard. Filter based on answer list, kg sentences or kg_vocab
-            if len(answer_list) == 0 or data_args.kg_column is not None and len(kg_vocab) == 0:
-                continue
-            # elif data_args.apply_filter and (len(answer_list) == 0 or kg_vocab == None or (kg_vocab != None and len(kg_vocab) == 0) or (data_args.kg_column != None and data_args.vocab_threshold != None and len(kg_vocab) > 0 and 
-            #     ((data_args.kg_column == 'kg_sentences' and kg_vocab[0]['count'] < data_args.vocab_threshold)
-            #     or (data_args.kg_column == 'kg_sentences' and len(kg_vocab) < data_args.vocab_threshold)))):
-            #     continue
-            else: # multiple answers
+
+            if data_args.answer_mode == 'best':
+                answer_list = get_best_answer(answers[idx], filter=data_args.answer_mode_filter)
+
+                if answer_list == None or len(answer_list) == 0:
+                    continue
+                if data_args.kg_column is not None:
+                    kg_vocab = answer_list[data_args.kg_column]
+                if data_args.kg_column is not None and len(kg_vocab) == 0:
+                    continue
                 question_passages = append_question(passages, q, kg_vocab)
-                
-                for answer_data in answer_list:
-                    inputs.append(question_passages)
-                    targets.append(answer_data)
-                    indices.append(examples["id"][idx])
+                inputs.append(question_passages)
+                targets.append(answer_list['answer'])
+                indices.append(examples["id"][idx])
+            else:
+                answer_list = get_top_answers(answers[idx])
+
+                if data_args.kg_column is not None and data_args.answer_mode_filter == 'general':
+                    kg_vocab = vocabs[idx]
+                    question_passages = append_question(passages, q, kg_vocab)
+
+                    for answer_data in answer_list:
+                        inputs.append(question_passages)
+                        targets.append(answer_data['answer'])
+                        indices.append(examples["id"][idx])
+      
+                elif data_args.kg_column is not None:
+                    for answer_data in answer_list:
+                        kg_vocab = answer_data[data_args.kg_column]
+                        question_passages = append_question(passages, q, kg_vocab)
+                        inputs.append(question_passages)
+                        targets.append(answer_data['answer'])
+                        indices.append(examples["id"][idx])
+                else:
+                    question_passages = append_question(passages, q, None)
+                    for answer_data in answer_list:
+                        inputs.append(question_passages)
+                        targets.append(answer_data['answer'])
+                        indices.append(examples["id"][idx])
+
+            # if there no answers or no passages, then discard. Filter based on answer list, kg sentences or kg_vocab
+            # if len(answer_list) == 0 or data_args.kg_column is not None and len(kg_vocab) == 0:
+            #     continue
+            #     # inputs.append(question_passages)
+            #     # targets.append("")  
+            #     # indices.append(examples["id"][idx])
+            # else: # multiple answers
+            #     for answer_data in answer_list:
+            #         inputs.append(question_passages)
+            #         targets.append(answer_data)
+            #         indices.append(examples["id"][idx])
                     
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
@@ -170,8 +221,11 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
             kg_vocab = None
-            if data_args.kg_column is not None:
+            if data_args.kg_column is not None and data_args.answer_mode_filter == 'general':
                 kg_vocab = vocabs[idx]
+            elif data_args.kg_column is not None:
+                answer_list = get_best_answer(answers[idx], filter=data_args.answer_mode_filter)
+                kg_vocab = answer_list[data_args.kg_column]
             question_passages = append_question(passages, q, kg_vocab)
             inputs.append(question_passages)
             indices.append(examples["id"][idx])
