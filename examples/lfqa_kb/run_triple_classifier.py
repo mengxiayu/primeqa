@@ -289,8 +289,8 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
     )
 
-    # tokenizer.add_tokens(["[TSEP]"])
-    # model.resize_token_embeddings(len(tokenizer))
+    tokenizer.add_tokens(["[TSEP]"])
+    model.resize_token_embeddings(len(tokenizer))
     # Preprocessing the datasets
     # Padding strategy
     if data_args.pad_to_max_length:
