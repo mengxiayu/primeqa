@@ -102,7 +102,7 @@ def get_answer_words(question, answer, client, train=True):
     for sentence in doc.sentence:
         for token in sentence.token:
             if token.lemma.lower() not in stop_words and token.lemma.lower() not in string.punctuation:
-                question_words.append(token.lemma.lower())
+                question_words.append(token.lemma)
 
 
     if train and answer['meta']['score'] < 3:
@@ -113,7 +113,7 @@ def get_answer_words(question, answer, client, train=True):
         for sentence in doc.sentence:
             for token in sentence.token:
                 if token.lemma.lower() not in stop_words and token.lemma.lower() not in string.punctuation:
-                    words.add(token.lemma.lower())
+                    words.add(token.lemma)
     return words
 
 def get_overlap(line, kg_triples, client, train=True, best=True):
@@ -160,8 +160,8 @@ def get_overlap(line, kg_triples, client, train=True, best=True):
             for part in triple_parts[:-1]: # object, relation, subject
                 words = part.split()
                 for word in words:
-                    w = lemmatizer.lemmatize(word).lower()
-                    if w not in stop_words:
+                    w = lemmatizer.lemmatize(word)
+                    if w.lower() not in stop_words:
                         kg_words.add(w)
 
             
@@ -184,13 +184,13 @@ def get_overlap(line, kg_triples, client, train=True, best=True):
             cnt = len(oracle_words)
             p = cnt / len(kg_words) if cnt > 0 else 0
             if new_words_added and cnt > 0:
-                kg_text = ' '.join(triple_parts[:-1])
-                kg_embedding = sbert.encode(kg_text, convert_to_tensor=True)
-                ans_sents = answer_sents[i]
-                ans_embeddings = sbert.encode(ans_sents, convert_to_tensor=True)
-                sbert_scores = util.cos_sim(kg_embedding, ans_embeddings)
-                max_sbert_score = float(torch.max(sbert_scores))
-                kg_oracle_triples.append({"text": ' '.join(triple_parts[:-1]), "count": cnt, "precision": p, "sbert_score": max_sbert_score})
+                # kg_text = ' '.join(triple_parts[:-1])
+                # kg_embedding = sbert.encode(kg_text, convert_to_tensor=True)
+                # ans_sents = answer_sents[i]
+                # ans_embeddings = sbert.encode(ans_sents, convert_to_tensor=True)
+                # sbert_scores = util.cos_sim(kg_embedding, ans_embeddings)
+                # max_sbert_score = float(torch.max(sbert_scores))
+                kg_oracle_triples.append({"text": ' '.join(triple_parts[:-1]), "count": cnt, "precision": p}) #, "sbert_score": max_sbert_score})
 
                 if triple_parts[-1] not in kg_oracle_sentences:
                     kg_oracle_sentences[triple_parts[-1]] = 0

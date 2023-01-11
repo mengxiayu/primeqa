@@ -37,6 +37,7 @@ def compute_metrics(p: EvalPrediction):
         local_rougel = _metric_max_over_ground_truths(
             _rougel_score, _pred, _refs
         )
+        pred['rougeL'] = local_rougel
         rougel += local_rougel
     # result = metric.compute(predictions=preds, references=refs)
     # result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
