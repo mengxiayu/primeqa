@@ -131,11 +131,11 @@ def convert2kg(texts: List[str], client: Any):
                 if is_stop_word(triple.subjectTokens, sent) or is_stop_word(triple.objectTokens, sent):
                     continue
                 
-                if triple.subject.lower() not in triples_sent:
-                    triples_sent[triple.subject.lower()] = {}
-                if triple.object.lower() not in triples_sent[triple.subject.lower()]:
-                    triples_sent[triple.subject.lower()][triple.object.lower()] = []
-                triples_sent[triple.subject.lower()][triple.object.lower()].append(triple.relation.lower())
+                if triple.subject not in triples_sent:
+                    triples_sent[triple.subject] = {}
+                if triple.object not in triples_sent[triple.subject]:
+                    triples_sent[triple.subject][triple.object] = []
+                triples_sent[triple.subject][triple.object].append(triple.relation)
             
             # If there are two S,R that all O are the same and the S words overlap, only keep the longer S
             # print(str(datetime.datetime.now()) + " filter triples")
@@ -199,17 +199,22 @@ def load_eli5_dpr(dataset_fn, n_docs):
             for i in range(min(n_docs,len(data["passages"]))):
                 passage = data["passages"][i]["text"]
                 pid = data["passages"][i]['pid']
-                offsets = pid[pid.index("::")+2:]
-                pid = pid[:pid.index("::")]
-                start, end = offsets.split(",") 
-                # if start[0] == "(":
-                #     start = int(start[1:])+1
-                # else:
-                start = int(start[1:])
-                end = int(end[:-1])
+
+                if "::" in pid:
+                    offsets = pid[pid.index("::")+2:]
+                    pid = pid[:pid.index("::")]
+                    start, end = offsets.split(",") 
+                    # if start[0] == "(":
+                    #     start = int(start[1:])+1
+                    # else:
+                    start = int(start[1:])
+                    end = int(end[:-1])
+                else:
+                    start = -1
+                    end = -1
 
                 # if overlapping paragraphs only take the first (highest score)
-                if pid in seen_pids:
+                if pid in seen_pids and start != -1 and end != -1:
                     overlap = False
                     for j in range(len(seen_pids[pid]['start'])):
                         if (start >= seen_pids[pid]['start'][j] and start <= seen_pids[pid]['end'][j]) or \

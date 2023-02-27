@@ -120,7 +120,7 @@ class DataTrainingArguments:
     answer_mode_filter: Optional[str] = field(
         default="rouge",
         metadata={"help": "approach for filtering answer in answer_mode: rouge, or size of kg vocab",
-                  "choices": ['rouge', 'size_kg', 'general'],
+                  "choices": ['rouge', 'size_kg', 'general', 'psg_score', 'kg_vocab_score', "kg_triple_score","kg_sentences_score", "psg_prec", "kg_vocab_prec", "kg_triple_prec", "kg_sent_prec"],
                   }
     )
     keep_top_n_answer: Optional[int] = field(

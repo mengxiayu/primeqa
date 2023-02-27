@@ -79,7 +79,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     if data_args.kg_column is not None:
         vocabs = examples[data_args.kg_column]
     n_doc = data_args.n_context
-
+        
     def top_passages(ctx):
         assert n_doc <= len(ctx) 
         return [ctx[i]["text"] for i in range(n_doc)]
@@ -89,27 +89,28 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         best_score = 0
 
         for answer in answers:
-            if filter == "rouge":
-                if answer['meta']['rouge'] > best_score:
-                    best_score = answer['meta']['rouge']
-                    best_answer = answer
-            elif filter == "size_kg":
+            if filter == "size_kg":
                 if len(answer['kg_vocab']) > best_score:
                     best_score = len(answer['kg_vocab'])
                     best_answer = answer
+            else:
+                if answer['meta'][filter] > best_score:
+                    best_score = answer['meta'][filter]
+                    best_answer = answer
         return best_answer
 
-    def get_top_answers(answers):
+    def get_top_answers(answers, filter='rouge'):
         # sort answers by recall then take top n
         answers_with_recall = {}
         top_answers = []
         for answer in answers:
-            if (mode == 'train' and answer['meta']['score'] < 3) or answer['meta']['score'] == 0:
-                continue
+            # if there is a score and the score is less than 3, skip this answer
+            if mode == 'train' and 'score' in answer['meta'] and (answer['meta']['score'] < 3 or answer['meta']['score']) == 0:
+                    continue
             # if answer['meta'] is None or 'recall' not in answer['meta'] or answer['meta']['recall'] == None:
             #      continue
             if data_args.keep_top_n_answer is not None:
-                answers_with_recall[answer] = answer['meta']['rouge']
+                answers_with_recall[answer] = answer['meta'][filter]
             else:
                 top_answers.append(answer)
         if data_args.keep_top_n_answer is None:
@@ -178,7 +179,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                 targets.append(answer_list['answer'])
                 indices.append(examples["id"][idx])
             else:
-                answer_list = get_top_answers(answers[idx])
+                answer_list = get_top_answers(answers[idx], data_args.answer_mode_filter)
 
                 if data_args.kg_column is not None and data_args.answer_mode_filter == 'general':
                     kg_vocab = vocabs[idx]

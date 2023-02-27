@@ -4,11 +4,12 @@ import json
 import spacy
 from spacy.lang.en.stop_words import STOP_WORDS
 from spacy.tokens import Token
+from rouge import Rouge
 stop_words_getter = lambda token: token.is_stop or token.lower_ in STOP_WORDS \
                                                 or token.lemma_ in STOP_WORDS
 Token.set_extension('is_stop', getter=stop_words_getter, force=True)
 nlp = spacy.load("en_core_web_lg", disable=["parser","ner"])
-
+rouge = Rouge()
 
 def get_nonstop_words(x):
     y = [
@@ -23,13 +24,17 @@ def get_nonstop_words(x):
     ]
     return set(y)
 
-def _rougel_score(prediction, ground_truth):
-    rouge = Rouge()
-    try:
-        scores = rouge.get_scores(prediction, ground_truth, avg=True)
-    except ValueError:  # "Hypothesis is empty."
-        return 0.0
-    return scores["rouge-l"]["f"]
+def _rougel_score(answers):
+
+    scores = [0] * len(answers)
+    for i in range(len(answers)):
+        for j in range(i+1, len(answers)):
+            try:
+                score = rouge.get_scores(answers[i], answers[j], avg=True)
+                scores[i] += score["rouge-l"]["f"]
+            except ValueError:  # "Hypothesis is empty."
+                return 0.0
+    return answers[scores.index(max(scores))]
 
 def _metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
     scores_for_ground_truths = []
