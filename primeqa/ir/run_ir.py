@@ -14,7 +14,11 @@ from primeqa.ir.sparse.config import BM25Config
 from primeqa.ir.sparse.bm25_engine import BM25Engine
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+
+logging.basicConfig(format='%(asctime)s %(filename)s:%(lineno)d - %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
+
 @dataclass
 class ProcessArguments:
     """
@@ -34,15 +38,7 @@ class ProcessArguments:
         default=False, metadata={"help": "Run search"}
     )
 
-@dataclass
-class DPRConfig:
-    '''
-    to be imported from the DPR implementation
-    '''
-    pass
-
 def main():
-
     parser = HfArgumentParser([ProcessArguments, BM25Config])
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -130,11 +126,39 @@ def main():
                 searcher = Searcher(args.index_name, checkpoint=args.checkpoint, collection=args.collection, config=colBERTConfig)
 
                 rankings = searcher.search_all(args.queries, args.topK)
-                out_fn = args.ranks_fn
+                out_fn = os.path.join(args.output_dir, 'ranked_passages.tsv')
                 rankings.save(out_fn)
 
     elif process_args.engine_type == 'DPR':
-        pass
+        logger.info(f"Running DPR")
+
+        if hasattr(process_args, 'do_train') and process_args.do_train:
+            from primeqa.ir.dense.dpr_top.dpr.config import DPRTrainingArguments
+            parser = HfArgumentParser(DPRTrainingArguments)
+            training_args, remaining_args = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+
+            from primeqa.ir.dense.dpr_top.dpr.biencoder_trainer import BiEncoderTrainer
+            trainer = BiEncoderTrainer(training_args)
+            trainer.train()
+
+        if hasattr(process_args, 'do_index') and process_args.do_index:
+            from primeqa.ir.dense.dpr_top.dpr.config import DPRIndexingArguments
+            parser = HfArgumentParser(DPRIndexingArguments)
+            (dpr_args, remaining_args) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+
+            from primeqa.ir.dense.dpr_top.dpr.index_simple_corpus import DPRIndexer
+            indexer = DPRIndexer(dpr_args)
+            indexer.index()
+
+        if hasattr(process_args, 'do_search') and process_args.do_search:
+            from primeqa.ir.dense.dpr_top.dpr.config import DPRSearchArguments
+            parser = HfArgumentParser(DPRSearchArguments)
+            (dpr_args, remaining_args) = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+
+            from primeqa.ir.dense.dpr_top.dpr.searcher import DPRSearcher
+            searcher = DPRSearcher(dpr_args)
+            searcher.search()
+
     elif process_args.engine_type == 'BM25':
         logger.info(f"Running BM25")
 

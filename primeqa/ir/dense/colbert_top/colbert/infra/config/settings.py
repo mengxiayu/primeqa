@@ -60,14 +60,14 @@ class RunSettings:
 
             if script_path.startswith(cwd):
                 script_path = script_path[len(cwd):]
-            
+
             else:
                 try:
                     commonpath = os.path.commonpath([script_path, root_path])
                     script_path = script_path[len(commonpath):]
                 except:
                     pass
-            
+
 
             if script_path.endswith('bin/pytest'):
                 script_path = script_path + '.py'
@@ -75,14 +75,14 @@ class RunSettings:
             script_name = script_path.replace('/', '.').strip('.')[:-3]
 
             assert len(script_name) > 0, (script_name, script_path, cwd)
-            
+
             return script_name
-        
-        return 'none'
+
+        return None
 
     @property
     def path_(self):
-        return os.path.join(self.root, self.experiment, self.script_name_, self.name)
+        return os.path.join(self.root, self.experiment, self.script_name_, self.name) if self.script_name_ is not None else os.path.join(self.root, self.experiment, self.name)
 
     @property
     def device_(self):
@@ -99,11 +99,10 @@ class ResourceSettings:
     queries: str = DefaultVal(None)
     index_name: str = DefaultVal(None)
 
-
 @dataclass
 class DocSettings:
     dim: int = DefaultVal(128)
-    doc_maxlen: int = DefaultVal(220)
+    doc_maxlen: int = DefaultVal(180)
     mask_punctuation: bool = DefaultVal(True)
 
 
@@ -133,7 +132,7 @@ class TrainingSettings:
 
     ## NEW:
     warmup: int = DefaultVal(None)
-    
+
     warmup_bert: int = DefaultVal(None)
 
     relu: bool = DefaultVal(False)
@@ -158,6 +157,7 @@ class TrainingSettings:
     init_from_lm: str = DefaultVal(None)
     local_models_repository: str = DefaultVal(None)
     ranks_fn: str = DefaultVal(None)
+    output_dir: str = DefaultVal(None)
     topK: int = DefaultVal(100)
 
     # used in distillation (Student/Teacher) training
@@ -170,9 +170,12 @@ class TrainingSettings:
     loss_function: str = DefaultVal(None)
     query_weight: float = DefaultVal(0.5)
 
+    rng_seed: int = DefaultVal(12345)
+
 @dataclass
 class IndexingSettings:
     index_path: str = DefaultVal(None)
+    index_location: str = DefaultVal(None)
 
     nbits: int = DefaultVal(1)
 
@@ -185,6 +188,6 @@ class IndexingSettings:
 
 @dataclass
 class SearchSettings:
-    nprobe: int = DefaultVal(2)
-    
-    ncandidates: int = DefaultVal(8192)
+    ncells: int = DefaultVal(None)
+    centroid_score_threshold: float = DefaultVal(None)
+    ndocs: int = DefaultVal(None)

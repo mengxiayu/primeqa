@@ -1,16 +1,17 @@
 from dataclasses import dataclass, field
 import dataclasses
+import typing
 
 @dataclass
 class IndexingArguments():
 
-    index_path: str = field(default=None, metadata={"help":"Path to the index directory location"})
+    index_location: str = field(default=None, metadata={"help":"Path to the index directory location"})
 
     overwrite: bool = field(default=False, metadata={"help": "Overwrite existing directory"})
 
-    corpus_path: str = field(default=None, metadata={"help":"Path to a corpus tsv or json file or directory"})
+    collection: str = field(default=None, metadata={"help":"Path to a corpus tsv or json file or directory"})
 
-    fieldnames: list = field(default=None, metadata={"help":"fields names to use to identify document_id, title, text if corpus tsv has no headings"})
+    fieldnames: typing.List[str] = field(default=None, metadata={"help":"fields names to use to identify document_id, title, text if corpus tsv has no headings"})
 
     additional_indexing_args: str = field(default='--storePositions --storeDocvectors --storeRaw', metadata={"help":'pyserini index options'})
 
@@ -19,11 +20,11 @@ class IndexingArguments():
 
 @dataclass
 class SearchArguments():
-    index_path: str = field(default=None, metadata={"help":"Path to the index directory location"})
+    index_location: str = field(default=None, metadata={"help":"Path to the index directory location"})
 
-    queries_path: str = field(default=None, metadata={"help":"Path to the tsv file where each line is in format 'id\tquery'"})
+    queries: str = field(default=None, metadata={"help":"Path to the tsv file where each line is in format 'id\tquery'"})
 
-    nhits: int = field(default=10, metadata={"help":"Number of hits to return"})
+    topK: int = field(default=10, metadata={"help":"Number of hits to return"})
 
     use_bm25: bool = field(default=True, metadata={"help":"Use bm25 scoring"})
     

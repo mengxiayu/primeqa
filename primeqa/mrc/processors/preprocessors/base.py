@@ -301,11 +301,13 @@ class BasePreProcessor(AbstractPreProcessor):
             return dataset
 
         keep_indices = [i for i, st in enumerate(dataset['subsample_type']) if self._keep_feature(st)]
-        try:
-            dataset = dataset.select(keep_indices)
-        except IndexError as ex:
-            raise ValueError("No features remaining after subsampling") from ex
+        if len(keep_indices) == 0:
+             raise ValueError("No features remaining after subsampling")
+
+        dataset = dataset.select(keep_indices)
+
         dataset = dataset.remove_columns('subsample_type')
+        dataset.set_format()
         return dataset
 
     def _keep_feature(self, st: SubsampleType) -> bool:
