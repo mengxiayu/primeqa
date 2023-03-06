@@ -1,23 +1,30 @@
 from rouge import Rouge
 from transformers.trainer_utils import EvalPrediction
 import numpy as np
+from rouge_score import rouge_scorer
+import sys
+
+hf_rouge = rouge_scorer.RougeScorer(rouge_types=['rougeLsum'], split_summaries=True) #evaluate.load('rouge')
+kilt_rouge = Rouge(metrics=['rouge-l'])
+sys.setrecursionlimit(20000)
 
 def _rougel_score(prediction, ground_truth):
-    rouge = Rouge()
-    # no normalization
     try:
-        scores = rouge.get_scores(prediction, ground_truth, avg=True)
+        hf_scores = hf_rouge.score(ground_truth, prediction)
+        kilt_scores = kilt_rouge.get_scores(prediction, ground_truth, avg=True)
     except ValueError:  # "Hypothesis is empty."
         return 0.0
-    return scores["rouge-l"]["f"]
+    return hf_scores['rougeLsum'].fmeasure, kilt_scores["rouge-l"]["f"]
 
-def _metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
-    scores_for_ground_truths = []
+def _metric_max_over_ground_truths(prediction, ground_truths):
+    hf_scores_for_ground_truths = []
+    kilt_scores_for_ground_truths = []
     for ground_truth in ground_truths:
-        score = metric_fn(prediction, ground_truth)
-        scores_for_ground_truths.append(score)
-    return max(scores_for_ground_truths)
-
+        if 'answer' in ground_truth:
+            hf_score, kilt_score = _rougel_score(prediction, ground_truth['answer'])
+            hf_scores_for_ground_truths.append(hf_score)
+            kilt_scores_for_ground_truths.append(kilt_score)
+    return max(hf_scores_for_ground_truths), max(kilt_scores_for_ground_truths)
 
 # modified from 
 # https://github.com/huggingface/transformers/blob/198c335d219a5eb4d3f124fdd1ce1a9cd9f78a9b/examples/pytorch/summarization/run_summarization.py#L563
@@ -34,9 +41,7 @@ def compute_metrics(p: EvalPrediction):
         assert ref["id"] == _id
         total_count += 1
         _refs = ref["answers"]
-        local_rougel = _metric_max_over_ground_truths(
-            _rougel_score, _pred, _refs
-        )
+        local_rougel = _metric_max_over_ground_truths(_pred, _refs)
         pred['rougeL'] = local_rougel
         rougel += local_rougel
     # result = metric.compute(predictions=preds, references=refs)
