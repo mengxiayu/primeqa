@@ -111,6 +111,18 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "The name of the column in the datasets containing the kg (for question answering)."},
     )
+    answer_mode: Optional[str] = field(
+        default="all",
+        metadata={"help": "approach for answers to keep: all or best",
+                  "choices": ['best', 'all'],
+                  }
+    )
+    answer_mode_filter: Optional[str] = field(
+        default="rouge",
+        metadata={"help": "approach for filtering answer in answer_mode: rouge, or size of kg vocab",
+                  "choices": ['rouge', 'size_kg', 'general'],
+                  }
+    )
     keep_top_n_answer: Optional[int] = field(
         default=None,
         metadata={"help": "The number of gold answers to keep (based on score). Default is to keep all."},
@@ -244,6 +256,12 @@ class DataTrainingArguments:
     )
     is_debug: bool = field(
         default=False, metadata={"help": "Debug mode."}
+    )
+    moe_mode: Optional[str] = field(
+        default="equal",
+        metadata={"help": "approach for emsembling output logits from sub-experts",
+                  "choices": ['equal', 'similarity'],
+                  }
     )
 
     def __post_init__(self):
@@ -443,6 +461,9 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    if data_args.moe_mode == "similarity":
+        assert data_args.q_only # need Q to compute similarity
+    model.set_moe_mode(data_args.moe_mode)
     model.resize_token_embeddings(len(tokenizer))
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
