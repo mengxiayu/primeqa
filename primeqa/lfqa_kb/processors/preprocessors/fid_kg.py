@@ -157,6 +157,57 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         else:
             return_data.extend([f"question: {question} passage: {t}" for t in passages])
         return return_data
+
+    def moe_append_question(passages, question, vocab):
+        return_data = []
+        # Question expert: Q
+        if data_args.q_only:
+            return_data.append("question: " + question)
+        # KG expert: Q + KG
+        if data_args.use_kg_oracle and data_args.kg_column != None:
+            kg_text = ""
+
+            if len(vocab) != 0 and data_args.kg_column == "kg_vocab":
+                kg_text = " ".join(vocab)
+            # have kg sentences be a fourth passage
+            elif len(vocab) != 0 and data_args.kg_column == "kg_sentences" or data_args.kg_column == "kg_triples":
+                text_field = "text"
+                delim = ". "
+                if data_args.kg_column == "kg_sentences":
+                    text_field = "sentence"
+                    delim = " "
+                kg_text = ""
+                for sentence in vocab:
+                    if data_args.vocab_threshold == None or data_args.vocab_threshold <= 0 or (sentence['count'] >= data_args.vocab_threshold):
+                        kg_text += sentence[text_field] + delim
+            if kg_text == "":
+                return_data.append("")
+            elif data_args.p_b4_q:
+                # <KG, Q>
+                return_data.append(f"passage: {kg_text} question: {question}")
+            else:
+                # <Q, KG>
+                return_data.append(f"question: {question} passage: {kg_text}")
+
+        # Passage expert: Q + P
+        passages_text = ' '.join([f"passage: {t}" for t in passages])
+        if data_args.p_b4_q:
+            # <P1, P2, P3, Q>
+            return_data.append(passages_text + question)
+        else:
+            # <Q, P1, P2, P3>
+            return_data.append(question + passages_text)
+
+        # Global expert: Q + KG + P
+        if data_args.use_kg_oracle and data_args.kg_column != None:
+            if data_args.p_b4_q:
+                return_data.append(f"passage: {kg_text} {passages_text} question: {question}")
+            else:
+                return_data.append(f"question: {question} passage: {kg_text} {passages_text}")
+        return return_data
+
+
+
     # multiple answers for training
     if mode == "train":
         inputs = []
@@ -174,7 +225,10 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                     kg_vocab = answer_list[data_args.kg_column]
                 if data_args.kg_column is not None and len(kg_vocab) == 0:
                     continue
-                question_passages = append_question(passages, q, kg_vocab)
+                if data_args.moe_mode is not None:
+                    question_passages = moe_append_question(passages, q, kg_vocab)
+                else:
+                    question_passages = append_question(passages, q, kg_vocab)
                 inputs.append(question_passages)
                 targets.append(answer_list['answer'])
                 indices.append(examples["id"][idx])
@@ -183,7 +237,10 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
 
                 if data_args.kg_column is not None and data_args.answer_mode_filter == 'general':
                     kg_vocab = vocabs[idx]
-                    question_passages = append_question(passages, q, kg_vocab)
+                    if data_args.moe_mode is not None:
+                        question_passages = moe_append_question(passages, q, kg_vocab)
+                    else:
+                        question_passages = append_question(passages, q, kg_vocab)
 
                     for answer_data in answer_list:
                         inputs.append(question_passages)
@@ -193,12 +250,18 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                 elif data_args.kg_column is not None:
                     for answer_data in answer_list:
                         kg_vocab = answer_data[data_args.kg_column]
-                        question_passages = append_question(passages, q, kg_vocab)
+                        if data_args.moe_mode is not None:
+                            question_passages = moe_append_question(passages, q, kg_vocab)
+                        else:
+                            question_passages = append_question(passages, q, kg_vocab)
                         inputs.append(question_passages)
                         targets.append(answer_data['answer'])
                         indices.append(examples["id"][idx])
                 else:
-                    question_passages = append_question(passages, q, None)
+                    if data_args.moe_mode is not None:
+                        question_passages = moe_append_question(passages, q, None)
+                    else:
+                        question_passages = append_question(passages, q, None)
                     for answer_data in answer_list:
                         inputs.append(question_passages)
                         targets.append(answer_data['answer'])
@@ -215,6 +278,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             #         inputs.append(question_passages)
             #         targets.append(answer_data)
             #         indices.append(examples["id"][idx])
+
                     
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
@@ -227,7 +291,11 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             elif data_args.kg_column is not None:
                 answer_list = get_best_answer(answers[idx], filter=data_args.answer_mode_filter)
                 kg_vocab = answer_list[data_args.kg_column]
-            question_passages = append_question(passages, q, kg_vocab)
+            if data_args.moe_mode is not None:
+                question_passages = moe_append_question(passages, q, kg_vocab)
+            else:
+                question_passages = append_question(passages, q, kg_vocab)
+
             inputs.append(question_passages)
             indices.append(examples["id"][idx])
         targets = [answer[0]["answer"] if len(answer) > 0 else "" for answer in answers]
