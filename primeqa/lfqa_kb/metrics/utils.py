@@ -13,7 +13,7 @@ def _rougel_score(prediction, ground_truth):
         hf_scores = hf_rouge.score(ground_truth, prediction)
         kilt_scores = kilt_rouge.get_scores(prediction, ground_truth, avg=True)
     except ValueError:  # "Hypothesis is empty."
-        return 0.0
+        return 0.0, 0.0
     return hf_scores['rougeLsum'].fmeasure, kilt_scores["rouge-l"]["f"]
 
 def _metric_max_over_ground_truths(prediction, ground_truths):
