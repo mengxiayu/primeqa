@@ -257,6 +257,12 @@ class DataTrainingArguments:
     is_debug: bool = field(
         default=False, metadata={"help": "Debug mode."}
     )
+    moe_mode: Optional[str] = field(
+        default=None,
+        metadata={"help": "approach for emsembling output logits from sub-experts",
+                  "choices": ['equal', 'similarity'],
+                  }
+    )
     
     def __post_init__(self):
         if (

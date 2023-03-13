@@ -105,7 +105,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         top_answers = []
         for answer in answers:
             # if there is a score and the score is less than 3, skip this answer
-            if mode == 'train' and 'score' in answer['meta'] and (answer['meta']['score'] < 3 or answer['meta']['score']) == 0:
+            if mode == 'train' and 'score' in answer['meta'] and (answer['meta']['score'] < 3 or answer['meta']['score'] == 0):
                     continue
             # if answer['meta'] is None or 'recall' not in answer['meta'] or answer['meta']['recall'] == None:
             #      continue
