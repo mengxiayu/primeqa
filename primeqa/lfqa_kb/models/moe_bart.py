@@ -34,8 +34,9 @@ class MoEBART(transformers.BartForConditionalGeneration):
         super().__init__(config)
         self.n_expert = None
         self.knowledge_selection = KnowledgeSelection(config.d_model)
-    def set_moe_mode(self, mode):
+    def set_moe_mode(self, mode, hard_weight):
         self.moe_mode = mode
+        self.hard_weight = hard_weight
 
     def forward(
         self,
@@ -127,7 +128,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
                 assert encoder_similarity is not None
                 sequence_similarity = encoder_similarity
             # print("similarity", sequence_similarity)
-            lm_logits, expert_weight = self.knowledge_selection(uncombined_logits, encoder_hidden, decoder_hidden, self.n_expert, sequence_similarity)
+            lm_logits, expert_weight = self.knowledge_selection(uncombined_logits, encoder_hidden, decoder_hidden, self.n_expert, sequence_similarity, self.hard_weight)
         
         elif self.moe_mode == "equal":
             lm_logits = uncombined_logits
@@ -490,13 +491,23 @@ class KnowledgeSelection(torch.nn.Module):
         super().__init__()
         # TODO add hidden layers
     
-    def forward(self, lm_logits, encoder_hidden, decoder_hidden, n_expert, similarity):
+    def forward(self, lm_logits, encoder_hidden, decoder_hidden, n_expert, similarity, hard_weight):
 
         Ld = decoder_hidden.shape[1] # decoder sequence length
         Bsz = int(decoder_hidden.shape[0] / n_expert)
-        p = similarity.reshape(-1, n_expert, 1) # (B, N, 1)
-        # Softmax along experts
-        p = F.softmax(p, dim=1)
+        # similarity: (B x N, 1)
+        _p = similarity.reshape(-1, n_expert, 1) # (B, N, 1)
+
+        # Give Q only the average of the other four
+        p = _p.clone()
+        p[:, 0, :] = torch.mean(_p[:, 1:, :], dim=1)
+        
+        if hard_weight:
+            max_indices = torch.argmax(p, dim=1, keepdim=True)
+            p = torch.zeros_like(p)
+            p.scatter_(1, max_indices, 1)
+        else:
+            p = F.softmax(p, dim=1)
         p = p.reshape(-1, 1, 1) # (B*N, 1, 1)
         p = p.expand(-1, Ld, 1).clone().to(lm_logits.device)
         output_logits = lm_logits * p

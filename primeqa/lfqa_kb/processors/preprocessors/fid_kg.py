@@ -158,6 +158,12 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
             return_data.extend([f"question: {question} passage: {t}" for t in passages])
         return return_data
 
+    def trim_text(text, max_words):
+        splitted_text = text.split()
+        result = splitted_text[:max_words] if len(splitted_text) > max_words else splitted_text
+        result = ' '.join(result)
+        return result
+
     def moe_append_question(passages, question, vocab):
         return_data = []
         # Question expert: Q
@@ -200,6 +206,10 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
 
         # Global expert: Q + KG + P
         if data_args.use_kg_oracle and data_args.kg_column != None:
+            # cut off inputs to fit both KG and passages
+            _maxlen = int(data_args.max_seq_length * 0.45)
+            passages_text = trim_text(passages_text, _maxlen)
+            kg_text = trim_text(kg_text, _maxlen)
             if data_args.p_b4_q:
                 return_data.append(f"passage: {kg_text} {passages_text} question: {question}")
             else:

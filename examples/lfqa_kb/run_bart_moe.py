@@ -263,7 +263,9 @@ class DataTrainingArguments:
                   "choices": ['equal', 'similarity'],
                   }
     )
-
+    hard_weight: bool = field(
+        default=False, metadata={"help": "Hard weighting for MoE."}
+    )
     def __post_init__(self):
         if (
             self.dataset_name is None
@@ -463,7 +465,7 @@ def main():
     )
     if data_args.moe_mode == "similarity":
         assert data_args.q_only # need Q to compute similarity
-    model.set_moe_mode(data_args.moe_mode)
+    model.set_moe_mode(data_args.moe_mode, data_args.hard_weight)
     model.resize_token_embeddings(len(tokenizer))
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
