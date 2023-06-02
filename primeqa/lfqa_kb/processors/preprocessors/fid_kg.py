@@ -36,7 +36,12 @@ def encode_passages(batch_text_passages, tokenizer, max_length):
     return passage_ids.tolist(), passage_masks.tolist()
 
 def preprocess_eli5_function_fid(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
-    indexes, inputs, targets = preprocess_eli5_batch_fid(examples, data_args, mode="train")
+    knowledge_scores = None
+    if data_args.moe_mode == "knowledge_scores":
+        indexes, inputs, targets, knowledge_scores = preprocess_eli5_batch_fid(examples, data_args, mode="train")
+        
+    else:
+        indexes, inputs, targets = preprocess_eli5_batch_fid(examples, data_args, mode="train")
     passage_ids, passage_masks = encode_passages(inputs, tokenizer, max_seq_length)
     with tokenizer.as_target_tokenizer():
         labels = tokenizer(targets, max_length=max_answer_length, padding=padding, truncation=True)
@@ -49,10 +54,16 @@ def preprocess_eli5_function_fid(examples, data_args, tokenizer, max_seq_length,
     model_inputs["attention_mask"] = passage_masks
     model_inputs["labels"] = labels["input_ids"]
     model_inputs["example_id"] = indexes
+    if knowledge_scores:
+        model_inputs["knowledge_scores"] = knowledge_scores
     return model_inputs
 
 def preprocess_eli5_validation_function_fid(examples, data_args, tokenizer, max_seq_length, max_answer_length, padding):
-    indexes, inputs, targets = preprocess_eli5_batch_fid(examples, data_args, mode="eval")
+    knowledge_scores = None
+    if data_args.moe_mode == "knowledge_scores":
+        indexes, inputs, targets, knowledge_scores = preprocess_eli5_batch_fid(examples, data_args, mode="eval")
+    else:
+        indexes, inputs, targets = preprocess_eli5_batch_fid(examples, data_args, mode="eval")
     passage_ids, passage_masks = encode_passages(inputs, tokenizer, max_seq_length)
     with tokenizer.as_target_tokenizer():
         labels = tokenizer(targets, max_length=max_answer_length, padding=padding, truncation=True)
@@ -68,7 +79,8 @@ def preprocess_eli5_validation_function_fid(examples, data_args, tokenizer, max_
     model_inputs["example_id"] = []
     for i in range(len(model_inputs["input_ids"])):
         model_inputs["example_id"].append(examples["id"][i])
-
+    if knowledge_scores:
+        model_inputs["knowledge_scores"] = knowledge_scores
     return model_inputs
 
 def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[str], List[str]]:
@@ -172,7 +184,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
         # KG expert: Q + KG
         if data_args.use_kg_oracle and data_args.kg_column != None:
             kg_text = ""
-
+            # vocab = vocab[:50] if len(vocab) > 50 else vocab
             if len(vocab) != 0 and data_args.kg_column == "kg_vocab":
                 kg_text = " ".join(vocab)
             # have kg sentences be a fourth passage
@@ -216,12 +228,11 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                 return_data.append(f"question: {question} passage: {kg_text} {passages_text}")
         return return_data
 
-
-
     # multiple answers for training
     if mode == "train":
         inputs = []
         targets = []
+        knowledge_scores = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
             kg_vocab = None
@@ -262,14 +273,25 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                         kg_vocab = answer_data[data_args.kg_column]
                         if data_args.moe_mode is not None:
                             question_passages = moe_append_question(passages, q, kg_vocab)
+                            psg_score = answer_data['meta']['psg_score']
+                            if data_args.kg_column == "kg_vocab":
+                                kg_score = answer_data['meta']['kg_vocab_score']
+                            elif data_args.kg_column == "kg_triples":
+                                kg_score = answer_data['meta']['kg_triple_score']
+                            elif data_args.kg_column == "kg_sentences":
+                                kg_score = answer_data['meta']['kg_sentences_score']
+                            
                         else:
                             question_passages = append_question(passages, q, kg_vocab)
                         inputs.append(question_passages)
                         targets.append(answer_data['answer'])
                         indices.append(examples["id"][idx])
+                        if data_args.moe_mode is not None:
+                            knowledge_scores.append([1-(psg_score + kg_score), kg_score, psg_score, psg_score + kg_score])
                 else:
                     if data_args.moe_mode is not None:
                         question_passages = moe_append_question(passages, q, None)
+
                     else:
                         question_passages = append_question(passages, q, None)
                     for answer_data in answer_list:
@@ -293,6 +315,7 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     elif mode == "eval": # for evaluation only take each question once
         inputs = []
         targets = []
+        knowledge_scores = []
         for idx,q in enumerate(questions):
             passages = top_passages(contexts[idx])
             kg_vocab = None
@@ -303,6 +326,16 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
                 kg_vocab = answer_list[data_args.kg_column]
             if data_args.moe_mode is not None:
                 question_passages = moe_append_question(passages, q, kg_vocab)
+                if data_args.moe_mode == "knowledge_scores":
+                    answer_data = answers[idx][0]
+                    psg_score = answer_data['meta']['psg_score']
+                    if data_args.kg_column == "kg_vocab":
+                        kg_score = answer_data['meta']['kg_vocab_score']
+                    elif data_args.kg_column == "kg_triples":
+                        kg_score = answer_data['meta']['kg_triple_score']
+                    elif data_args.kg_column == "kg_sentences":
+                        kg_score = answer_data['meta']['kg_sentences_score']
+                    knowledge_scores.append([1-(psg_score + kg_score), kg_score, psg_score, psg_score + kg_score])
             else:
                 question_passages = append_question(passages, q, kg_vocab)
 
@@ -312,6 +345,8 @@ def preprocess_eli5_batch_fid(examples, data_args, mode="train") -> Tuple[List[s
     else:
         raise ValueError("mode requires eval or train")
 
+    if data_args.moe_mode == "knowledge_scores":
+        return indices, inputs, targets, knowledge_scores
     return indices, inputs, targets # inputs is a list of a list of question+passage, targets is a list of answers
 
 

@@ -34,7 +34,7 @@ def get_initial_query(x):
         and not token.is_punct
         and not token.is_space
         and not token.like_num
-        and not token.pos_ == "PROPN"
+        and not token.pos_ == "PRON"
     ]
     return list(set(y))
 

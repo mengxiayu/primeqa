@@ -260,7 +260,7 @@ class DataTrainingArguments:
     moe_mode: Optional[str] = field(
         default="equal",
         metadata={"help": "approach for emsembling output logits from sub-experts",
-                  "choices": ['equal', 'similarity'],
+                  "choices": ['equal', 'similarity', 'knowledge_scores'],
                   }
     )
     hard_weight: bool = field(
@@ -412,7 +412,7 @@ def main():
         if data_args.test_file is not None:
             extension = data_args.test_file.split(".")[-1]
             raw_datasets["test"] = load_dataset(extension, data_files={"test": data_args.test_file}, split="validation")
-        
+    print(len(raw_datasets["validation"]))
             # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 

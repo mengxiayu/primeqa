@@ -58,6 +58,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
         return_dict: Optional[bool] = None,
         is_debug: Optional[bool] = None,
         encoder_similarity: Optional[torch.FloatTensor] = None,
+        knowledge_scores: Optional[torch.FloatTensor] = None,
     ) -> Union[Tuple, Seq2SeqLMOutput]: 
 
         # NOTE reshape inputs here
@@ -69,8 +70,10 @@ class MoEBART(transformers.BartForConditionalGeneration):
         if attention_mask != None:
             attention_mask = attention_mask.view(-1, attention_mask.size(-1))
 
-
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        # print(knowledge_scores, knowledge_scores.shape)
+        if knowledge_scores != None:
+            knowledge_scores = knowledge_scores.view(-1, knowledge_scores.size(-1))
 
         # if encoder_outputs != None: # when generate(). the model.get_encoder() was called in "_prepare_encoder_decoder_kwargs_for_generation"
         #     # reshape encoder outputs. 
@@ -132,7 +135,9 @@ class MoEBART(transformers.BartForConditionalGeneration):
         
         elif self.moe_mode == "equal":
             lm_logits = uncombined_logits
-
+        
+        elif self.moe_mode == "knowledge_scores":
+            lm_logits, expert_weight = self.knowledge_selection(uncombined_logits, encoder_hidden, decoder_hidden, self.n_expert, knowledge_scores, self.hard_weight)
         # ensemble experts
         lm_logits = lm_logits.view(-1, self.n_expert, lm_logits.size(-2), lm_logits.size(-1)) # (bsz, n_passages, seq_len, vocab_size)
         lm_logits = torch.sum(lm_logits, dim=1)
@@ -208,7 +213,7 @@ class MoEBART(transformers.BartForConditionalGeneration):
         encoder = self.get_encoder()
 
         # 2. prepare encoder args and encoder kwargs from model kwargs
-        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache", "knowledge_scores"]
         encoder_kwargs = {
             argument: value
             for argument, value in model_kwargs.items()
@@ -232,7 +237,6 @@ class MoEBART(transformers.BartForConditionalGeneration):
             model_kwargs["encoder_similarity"] = sequence_similarity # NOTE record input similarity
         else:
             model_kwargs["encoder_similarity"] = None
-
         return model_kwargs
     
     # called in generation()
@@ -252,20 +256,35 @@ class MoEBART(transformers.BartForConditionalGeneration):
         # cut decoder_input_ids if past_key_values is used
         if past_key_values is not None:
             decoder_input_ids = decoder_input_ids[:, -1:]
-
-        return {
-            "input_ids": None,  # encoder_outputs is defined. input_ids not needed
-            "encoder_outputs": encoder_outputs,
-            "past_key_values": past_key_values,
-            "decoder_input_ids": decoder_input_ids,
-            "attention_mask": attention_mask,
-            "decoder_attention_mask": decoder_attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
-            "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
-            "encoder_similarity": kwargs["encoder_similarity"]
-        }
+        if "knowledge_scores" in kwargs:
+            return {
+                "input_ids": None,  # encoder_outputs is defined. input_ids not needed
+                "encoder_outputs": encoder_outputs,
+                "past_key_values": past_key_values,
+                "decoder_input_ids": decoder_input_ids,
+                "attention_mask": attention_mask,
+                "decoder_attention_mask": decoder_attention_mask,
+                "head_mask": head_mask,
+                "decoder_head_mask": decoder_head_mask,
+                "cross_attn_head_mask": cross_attn_head_mask,
+                "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
+                "encoder_similarity": kwargs["encoder_similarity"],
+                "knowledge_scores": kwargs["knowledge_scores"],
+            }
+        else:
+            return {
+                "input_ids": None,  # encoder_outputs is defined. input_ids not needed
+                "encoder_outputs": encoder_outputs,
+                "past_key_values": past_key_values,
+                "decoder_input_ids": decoder_input_ids,
+                "attention_mask": attention_mask,
+                "decoder_attention_mask": decoder_attention_mask,
+                "head_mask": head_mask,
+                "decoder_head_mask": decoder_head_mask,
+                "cross_attn_head_mask": cross_attn_head_mask,
+                "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
+                "encoder_similarity": kwargs["encoder_similarity"],
+            }         
 
     # for debug purpose
         # def greedy_search(

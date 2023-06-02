@@ -189,6 +189,8 @@ class QuestionAnsweringSeq2SeqTrainer(Seq2SeqTrainer):
             gen_kwargs["query"] = inputs.get("query", None)
         if "example_id" in inputs:
             gen_kwargs["example_id"] = inputs.get("example_id", None)
+        if "knowledge_scores" in inputs:
+            gen_kwargs["knowledge_scores"] = inputs.get("knowledge_scores", None)
         # prepare generation inputs
         # some encoder-decoder models can have varying encder's and thus
         # varying model input names
