@@ -166,20 +166,19 @@ def get_overlap(line, kg_triples, client, train=True, best=True):
                         kg_words.add(w)
 
             oracle_words = kg_words & answer_words
-            num_kg_words =  len(kg_all_words)
-            num_kg_words_all =  len(kg_all_words_all)
+            num_oracle_kg_words =  len(kg_all_words)
+            num_oracle_kg_words_all =  len(kg_all_words_all)
             kg_all_words.update(kg_words)
             kg_oracle_words.update(oracle_words)
             kg_all_words_all.update(kg_words)
             kg_oracle_words_all.update(oracle_words)
 
-            # only add to oracles if this triple has a new unseen word.
-            # FIXME
+            # only add to oracles if this triple has a new unseen oracle word.
             new_words_added = False
-            if len(kg_all_words) > num_kg_words:
+            if len(kg_oracle_words) > num_oracle_kg_words:
                 new_words_added = True
             new_words_added_all = False
-            if len(kg_all_words_all) > num_kg_words_all:
+            if len(kg_oracle_words_all) > num_oracle_kg_words_all:
                 new_words_added_all = True
 
             cnt = len(oracle_words)
