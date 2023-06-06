@@ -29,13 +29,12 @@ os.environ['CORENLP_HOME'] = '/afs/crc.nd.edu/user/m/myu2/stanford-corenlp-4.4.0
 rouge = Rouge()
 
 def load_triples(input_file):
-    with open (input_file, 'r') as f:
+    with gzip.open (input_file, 'r') as f:
         data_lines = [json.loads(line.strip()) for line in f]
     return data_lines
 
 def load_answers_and_passages(input_file):
-    # with gzip.open (input_file, 'r') as f:
-    with open (input_file) as f:
+    with gzip.open(input_file, 'r') as f:
         data_lines = [json.loads(line.strip()) for line in f]
     return data_lines
 
@@ -130,7 +129,6 @@ def get_overlap(line, kg_triples, client, train=True, best=True):
 
     if best and train:
         answers = get_best_answer(answers)
-
     passages_by_id = {}
 
     for passage in line["passages"]:
@@ -166,12 +164,12 @@ def get_overlap(line, kg_triples, client, train=True, best=True):
                         kg_words.add(w)
 
             oracle_words = kg_words & answer_words
-            num_oracle_kg_words =  len(kg_all_words)
-            num_oracle_kg_words_all =  len(kg_all_words_all)
+            num_oracle_kg_words =  len(kg_oracle_words) # count existing oracle words
+            num_oracle_kg_words_all =  len(kg_oracle_words_all) # count existing oracle words
             kg_all_words.update(kg_words)
-            kg_oracle_words.update(oracle_words)
+            kg_oracle_words.update(oracle_words) # update oracle words
             kg_all_words_all.update(kg_words)
-            kg_oracle_words_all.update(oracle_words)
+            kg_oracle_words_all.update(oracle_words) # update oracle words
 
             # only add to oracles if this triple has a new unseen oracle word.
             new_words_added = False
